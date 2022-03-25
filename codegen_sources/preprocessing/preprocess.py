@@ -9,14 +9,17 @@ from pathlib import Path
 
 import argparse
 from submitit import AutoExecutor, LocalExecutor
+from typing import Type
 
 from codegen_sources.preprocessing.bpe_modes.fast_bpe_mode import FastBPEMode
 from codegen_sources.preprocessing.bpe_modes.roberta_bpe_mode import RobertaBPEMode
+from codegen_sources.preprocessing.dataset_modes.dataset_mode import DatasetMode
 from codegen_sources.preprocessing.dataset_modes.monolingual_functions_mode import (
     MonolingualFunctionsMode,
 )
 
 from codegen_sources.preprocessing.dataset_modes.monolingual_mode import MonolingualMode
+from codegen_sources.preprocessing.dataset_modes.my_obfuscation_mode import MyObfuscationMode
 from codegen_sources.preprocessing.dataset_modes.obfuscation_mode import ObfuscationMode
 from codegen_sources.preprocessing.dataset_modes.obfuscation_functions_mode import (
     ObfuscationFunctionsMode,
@@ -38,12 +41,13 @@ def preprocess(args):
     logger.info(f"Dataset pipeline for {args.input_path}")
     # dataset mode
     dataset_class = {
+        "my_obfuscation": MyObfuscationMode,
         "obfuscation": ObfuscationMode,
         "monolingual": MonolingualMode,
         "monolingual_functions": MonolingualFunctionsMode,
         "obfuscation_functions": ObfuscationFunctionsMode,
     }
-    dataset_mode = dataset_class[args.mode]
+    dataset_mode: Type[DatasetMode] = dataset_class[args.mode]
 
     # bpe mode
     assert args.bpe_mode in ["fast", "roberta"]
@@ -137,6 +141,7 @@ if __name__ == "__main__":
         type=str,
         default="monolingual_functions",
         choices=[
+            "my_obfuscation",
             "obfuscation",
             "monolingual",
             "monolingual_functions",

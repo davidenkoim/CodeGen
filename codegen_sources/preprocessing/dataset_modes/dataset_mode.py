@@ -47,6 +47,7 @@ from codegen_sources.preprocessing.utils import (
 )
 from submitit import Executor, LocalExecutor
 
+from model.src.data.dictionary import Dictionary
 
 TIMEOUT = "timeout"
 
@@ -325,8 +326,11 @@ class DatasetMode(Generic[T]):
                 line_id, json_line, process_strings, lang_processors[lang]
             )
         except timeout.TimeoutError:
-            logger.info("Timeout error extracting data")
+            logger.info(f"Timeout error extracting data {line_id}")
             return line_id, None, TIMEOUT
+        except Exception as e:
+            logger.info(f"Exception occurred extracting data {line_id}")
+            return default_return
 
     def open_tok_files(self, files: dict):
         return {
@@ -411,7 +415,7 @@ class DatasetMode(Generic[T]):
 
     def shuffle_all_tok(self):
         """
-        Shuffle all.tok. If dataset is parallel, shuflle them parallely
+        Shuffle all.tok. If dataset is parallel, shuffle them parallely
         """
         for lang in self.languages:
             filenames = [f"{lang}.all.{suf}.tok" for suf in self.suffixes]
@@ -447,7 +451,7 @@ class DatasetMode(Generic[T]):
         self, percent_test=1, percent_valid=1, dedupe: bool = True
     ):
         """
-        Take the tokenized data, that has been regroupe into .tok,
+        Take the tokenized data, that has been regrouped into .tok,
         and split them into a training, test and validation tests
         Do it in parallel for parallel datasets.
         """

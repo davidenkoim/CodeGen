@@ -93,7 +93,7 @@ class ObfuscationMode(DatasetMode):
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            logger.warning(f"Error obfuscating content {e} \n")
+            # logger.warning(f"Error obfuscating content {e} \n")
             return default_return
         return (
             line_id,
