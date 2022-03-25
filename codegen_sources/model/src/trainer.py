@@ -682,9 +682,9 @@ class Trainer(object):
 
     def deobfuscate_by_variable(self, x, y, p, roberta_mode, rng=None):
         """
-        Deobfuscate class, function and variable name with probabilty p, by variable blocked.
+        Deobfuscate class, function and variable name with probability p, by variable blocked.
         We chose some variables VAR_N, functions FUNC_N or class CLASS_N - with probability p - to deobfuscate entirely.
-        I.e if VAR_0 is picked, all the occurences of VAR_0 are deobfuscated.
+        I.e. if VAR_0 is picked, all the occurrences of VAR_0 are deobfuscated.
         x : tensor slen x bs , x is obfuscated, i.e variable, function and classes names are
         replaced by special tokens. ( CLASS_X, FUNC_X and VAR_X)
         y : ylen x bs contains the dictionary of obfuscated tokens, i.e 'CLASS_0 class_name | VAR_0 variable_name .. '

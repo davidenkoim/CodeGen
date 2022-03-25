@@ -9,13 +9,14 @@ import argparse
 import json
 import random
 
-from src.data.loader import check_data_params, load_data
-from src.evaluation.evaluator import SingleEvaluator, EncDecEvaluator
-from src.model import check_model_params, build_model, build_classifier
-from src.slurm import init_signal_handler, init_distributed_mode
-from src.trainer import SingleTrainer, EncDecTrainer
-from src.utils import bool_flag, initialize_exp, set_sampling_probs, shuf_order
-from src.utils import print_memory
+from .src.distiller import DistillationTrainer
+from .src.data.loader import check_data_params, load_data
+from .src.evaluation.evaluator import SingleEvaluator, EncDecEvaluator
+from .src.model import check_model_params, build_model, build_classifier
+from .src.slurm import init_signal_handler, init_distributed_mode
+from .src.trainer import SingleTrainer, EncDecTrainer
+from .src.utils import bool_flag, initialize_exp, set_sampling_probs, shuf_order
+from .src.utils import print_memory
 
 
 def get_parser():
@@ -141,7 +142,7 @@ def get_parser():
         type=str,
         default="",
         help="Length distribution of the masked spans. "
-        "No span masking if kept empty. Constant if integer. Poisson if 'poisson'",
+             "No span masking if kept empty. Constant if integer. Poisson if 'poisson'",
     )
     parser.add_argument(
         "--poisson_lambda",
@@ -180,16 +181,16 @@ def get_parser():
         type=str,
         default="",
         help="Map the lngs to pretrained lgs, java_sa:java_obfuscated"
-        "then the emb of java_sa in this XP will be mapped to the emb of java_obfuscated in pretrained model",
+             "then the emb of java_sa in this XP will be mapped to the emb of java_obfuscated in pretrained model",
     )
     parser.add_argument(
         "--lgs_id_mapping",
         type=str,
         default="",
         help="Map the in or out language id of some languages to others for mt_steps "
-        "for instance 'java_np:java_buggy-java_resolved' means java_np gets the "
-        "same language embeddings as java_buggy for input sentences and java_resolved "
-        "for output sentences. Different mappings separated by commas",
+             "for instance 'java_np:java_buggy-java_resolved' means java_np gets the "
+             "same language embeddings as java_buggy for input sentences and java_resolved "
+             "for output sentences. Different mappings separated by commas",
     )
     parser.add_argument(
         "--max_vocab",
@@ -208,7 +209,7 @@ def get_parser():
         type=str,
         default="",
         help="Datasets with parallel sentence ids. Datasets separated by ,. "
-        "Example 'valid|para,train|lang1 if all parallel valid datasets and train lang1 datasets have ids",
+             "Example 'valid|para,train|lang1 if all parallel valid datasets and train lang1 datasets have ids",
     )
 
     # batch parameters
@@ -299,8 +300,8 @@ def get_parser():
         type=bool_flag,
         default=False,
         help="Whether to add </s> at the beginning "
-        "of every sentence in steam datasets."
-        "It matters for MLM.",
+             "of every sentence in steam datasets."
+             "It matters for MLM.",
     )
 
     # training coefficients
@@ -680,6 +681,26 @@ def get_parser():
         "--n_share_dec", type=int, default=0, help="Number of decoder layers to share"
     )
 
+    # distillation
+    parser.add_argument(
+        "--distillation",
+        type=bool_flag,
+        default=False,
+        help="Distillation model training",
+    )
+
+    parser.add_argument(
+        "--teacher_path", type=str, default="", help="Teacher model path"
+    )
+
+    parser.add_argument(
+        "--lambda_kld", type=float, default=1, help="Distillation coefficient"
+    )
+
+    parser.add_argument(
+        "--temperature_kld", type=float, default=2, help="Temperature of softmax before KLD"
+    )
+
     return parser
 
 
@@ -714,7 +735,8 @@ def main(params):
         trainer = SingleTrainer(model, data, params, classifier)
         evaluator = SingleEvaluator(trainer, data, params)
     else:
-        trainer = EncDecTrainer(encoder, decoder, data, params)
+        trainer = EncDecTrainer(encoder, decoder, data, params) if not params.distillation else DistillationTrainer(
+            encoder, decoder, data, params)
         evaluator = EncDecEvaluator(trainer, data, params)
     print_memory(logger, "after building all models")
 
