@@ -7,11 +7,13 @@
 
 import os
 import argparse
+import time
 from pathlib import Path
 import sys
 import fastBPE
 import torch
 from codegen_sources.model.src.logger import create_logger
+from codegen_sources.preprocessing.dataset_modes.my_obfuscation_mode import read_file
 from codegen_sources.preprocessing.lang_processors.cpp_processor import CppProcessor
 from codegen_sources.preprocessing.lang_processors.java_processor import JavaProcessor
 from codegen_sources.preprocessing.lang_processors.python_processor import (
@@ -143,13 +145,19 @@ class Deobfuscator:
 
         with torch.no_grad():
             # Convert source code to ids
+            start = time.perf_counter()
             tokens = [t for t in tokenizer(input)]
+            print(f"Time: {time.perf_counter() - start}s")
             print(f"Tokenized {lang} function:")
             print(tokens)
+            start = time.perf_counter()
             tokens = self.bpe_model.apply_bpe(" ".join(tokens))
             tokens = self.bpe_model.repair_bpe_for_obfuscation_line(tokens)
+            print(f"Time: {time.perf_counter() - start}s")
             print(f"BPE {params.lang} function:")
             print(tokens)
+
+            start = time.perf_counter()
             tokens = ["</s>"] + tokens.split() + ["</s>"]
             input = " ".join(tokens)
 
@@ -187,7 +195,7 @@ class Deobfuscator:
                     max_len=int(
                         min(self.reloaded_params.max_len, 3 * len1.max().item() + 10)
                     ),
-                    early_stopping=False,
+                    early_stopping=True,
                     length_penalty=1.0,
                     beam_size=beam_size,
                 )
@@ -204,6 +212,7 @@ class Deobfuscator:
             results = []
             for t in tok:
                 results.append(t)
+            print(f"Time DOBF: {time.perf_counter() - start}s")
             return results
 
 
@@ -227,8 +236,7 @@ if __name__ == "__main__":
     deobfuscator = Deobfuscator(params.model_path, params.BPE_path)
 
     # read input code from stdin
-    src_sent = []
-    input = sys.stdin.read().strip()
+    input = read_file("/home/igor/PycharmProjects/CodeGen/examples/example.java")
 
     with torch.no_grad():
         output = deobfuscator.deobfuscate(
