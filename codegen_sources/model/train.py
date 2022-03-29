@@ -9,8 +9,6 @@ import argparse
 import json
 import random
 
-import wandb
-
 from .src.distiller import DistillationTrainer
 from .src.data.loader import check_data_params, load_data
 from .src.evaluation.evaluator import SingleEvaluator, EncDecEvaluator
@@ -900,7 +898,6 @@ if __name__ == "__main__":
     # generate parser / parse parameters
     parser = get_parser()
     params = parser.parse_args()
-    wandb.init(project="dobf-distillation", config=vars(params))
 
     # debug mode
     if params.debug:

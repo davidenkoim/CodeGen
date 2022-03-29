@@ -15,7 +15,7 @@ from logging import getLogger
 import apex
 import numpy as np
 import torch
-import wandb
+# import wandb
 from torch.nn.utils import clip_grad_norm_
 
 from .cache import ListCache, RoundRobinCache
@@ -393,7 +393,6 @@ class Trainer(object):
         d_stats = {k: np.mean(v)
                    for k, v in self.stats.items()
                    if isinstance(v, list) and len(v) > 0}
-        wandb.log(d_stats, commit=False)
         s_stat = " || ".join(
             [
                 "{}: {:7.4f}".format(k, np.mean(v))
@@ -412,8 +411,6 @@ class Trainer(object):
                     + (" - %s LR: " % k)
                     + " / ".join("{:.4e}".format(group["lr"]) for group in v.param_groups)
             )
-            for i, group in enumerate(v.param_groups):
-                wandb.log({f"lr-{k}-{i}": group["lr"]}, commit=False)
 
         if self.params.bt_sample_temperature > 0:
             s_bt_samp = " - BT-sampling-T: " + "{:2.2e}".format(
@@ -429,8 +426,6 @@ class Trainer(object):
             self.stats["processed_s"] * 1.0 / diff,
             self.stats["processed_w"] * 1.0 / diff,
         )
-        wandb.log({"sent/s": self.stats["processed_s"] * 1.0 / diff,
-                   "words/s": self.stats["processed_w"] * 1.0 / diff})
         self.stats["processed_s"] = 0
         self.stats["processed_w"] = 0
         self.last_time = new_time
