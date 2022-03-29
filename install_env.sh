@@ -1,9 +1,16 @@
+# Install Anaconda
+wget https://repo.anaconda.com/archive/Anaconda3-2021.11-Linux-x86_64.sh
+bash ./Anaconda3-2021.11-Linux-x86_64.sh
+rm ./Anaconda3-2021.11-Linux-x86_64.sh
+
+# Create environment
+conda init
 conda create --name codeGen_env python=3.6.9
 conda activate codeGen_env
 conda config --add channels conda-forge
 conda config --add channels pytorch
 
-conda install pytorch torchvision torchaudio cudatoolkit=11.0 six scikit-learn stringcase transformers ply slimit astunparse submitit
+conda install pytorch torchvision torchaudio cudatoolkit=11.3 six scikit-learn stringcase transformers ply slimit astunparse submitit
 pip install cython
 cd codegen_sources/model/tools
 git clone https://github.com/glample/fastBPE.git
