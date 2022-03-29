@@ -7,25 +7,34 @@
 
 import fileinput
 import json
-import subprocess
-import sys
-import time
-import zlib
 from concurrent.futures.process import ProcessPoolExecutor
+from multiprocessing import Pool, cpu_count
+import submitit
+from typing import TypeVar, Generic, List
+import time
+from pathlib import Path
+import subprocess
+import zlib
 from hashlib import sha256
 from itertools import chain, repeat
+
 from logging import getLogger
-from multiprocessing import Pool, cpu_count
-from pathlib import Path
-from typing import TypeVar, Generic, List
 
-import submitit
+import sys
+
 import tqdm
-from submitit import Executor, LocalExecutor
-
 from codegen_sources.preprocessing import timeout
 from codegen_sources.preprocessing.bpe_modes.bpe_mode import BPEMode
+from codegen_sources.preprocessing.obfuscation.utils_deobfuscation import SEPARATOR
+from codegen_sources.preprocessing.lang_processors.cpp_processor import CppProcessor
+from codegen_sources.preprocessing.lang_processors.java_processor import JavaProcessor
+from codegen_sources.preprocessing.lang_processors.python_processor import (
+    PythonProcessor,
+)
 from codegen_sources.preprocessing.lang_processors.lang_processor import LangProcessor
+from codegen_sources.preprocessing.lang_processors.python_processor import (
+    PythonProcessor,
+)
 from codegen_sources.preprocessing.obfuscation.utils_deobfuscation import SEPARATOR
 from codegen_sources.preprocessing.utils import (
     binarize_for_XLM_file,
@@ -36,6 +45,7 @@ from codegen_sources.preprocessing.utils import (
     shuf_file,
     shuf_parallel_files,
 )
+from submitit import Executor, LocalExecutor
 
 TIMEOUT = "timeout"
 
