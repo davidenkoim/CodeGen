@@ -15,6 +15,7 @@ from logging import getLogger
 import apex
 import numpy as np
 import torch
+import wandb
 from torch.nn.utils import clip_grad_norm_
 
 from .cache import ListCache, RoundRobinCache
@@ -282,10 +283,10 @@ class Trainer(object):
         """
         params = self.params
         assert (
-            params.amp == 0
-            and params.fp16 is False
-            or params.amp in [1, 2, 3]
-            and params.fp16 is True
+                params.amp == 0
+                and params.fp16 is False
+                or params.amp in [1, 2, 3]
+                and params.fp16 is True
         )
         opt_names = self.optimizers.keys()
         models = [
@@ -308,7 +309,7 @@ class Trainer(object):
             if isinstance(model_attr, list):
                 models_length = len(model_attr)
                 setattr(
-                    self, name, models[current_index : current_index + models_length]
+                    self, name, models[current_index: current_index + models_length]
                 )
                 current_index += models_length
             else:
@@ -367,7 +368,7 @@ class Trainer(object):
                     optimizer.zero_grad()
             else:
                 with apex.amp.scale_loss(
-                    loss, optimizers, delay_unscale=True
+                        loss, optimizers, delay_unscale=True
                 ) as scaled_loss:
                     scaled_loss.backward()
 
@@ -389,25 +390,30 @@ class Trainer(object):
         #     return
 
         s_iter = "%7i - " % self.n_total_iter
+        d_stats = {k: np.mean(v)
+                   for k, v in self.stats.items()
+                   if isinstance(v, list) and len(v) > 0}
+        wandb.log(d_stats, commit=False)
         s_stat = " || ".join(
             [
                 "{}: {:7.4f}".format(k, np.mean(v))
-                for k, v in self.stats.items()
-                if type(v) is list and len(v) > 0
+                for k, v in d_stats.items()
             ]
         )
-        for k in self.stats.keys():
-            if type(self.stats[k]) is list:
-                del self.stats[k][:]
+        for k, v in self.stats.items():
+            if type(v) is list:
+                del v[:]
 
         # learning rates
         s_lr = " - "
         for k, v in self.optimizers.items():
             s_lr = (
-                s_lr
-                + (" - %s LR: " % k)
-                + " / ".join("{:.4e}".format(group["lr"]) for group in v.param_groups)
+                    s_lr
+                    + (" - %s LR: " % k)
+                    + " / ".join("{:.4e}".format(group["lr"]) for group in v.param_groups)
             )
+            for i, group in enumerate(v.param_groups):
+                wandb.log({f"lr-{k}-{i}": group["lr"]}, commit=False)
 
         if self.params.bt_sample_temperature > 0:
             s_bt_samp = " - BT-sampling-T: " + "{:2.2e}".format(
@@ -423,6 +429,8 @@ class Trainer(object):
             self.stats["processed_s"] * 1.0 / diff,
             self.stats["processed_w"] * 1.0 / diff,
         )
+        wandb.log({"sent/s": self.stats["processed_s"] * 1.0 / diff,
+                   "words/s": self.stats["processed_w"] * 1.0 / diff})
         self.stats["processed_s"] = 0
         self.stats["processed_w"] = 0
         self.last_time = new_time
@@ -431,14 +439,14 @@ class Trainer(object):
         logger.info(s_iter + s_speed + s_stat + s_lr + s_bt_samp)
 
     def get_iterator(
-        self,
-        iter_name,
-        lang1,
-        lang2,
-        stream,
-        span=None,
-        self_training=False,
-        st_scores_cutoff=None,
+            self,
+            iter_name,
+            lang1,
+            lang2,
+            stream,
+            span=None,
+            self_training=False,
+            st_scores_cutoff=None,
     ):
         """
         Create a new iterator for a dataset.
@@ -474,7 +482,7 @@ class Trainer(object):
                     group_by_size=self.params.group_by_size,
                     n_sentences=-1,
                     tokens_per_batch=self.params.tokens_per_batch
-                    * (self.params.gen_tpb_multiplier if iter_name == "bt" else 1),
+                                     * (self.params.gen_tpb_multiplier if iter_name == "bt" else 1),
                     st_scores_cutoff=st_scores_cutoff,
                 )
         else:
@@ -502,14 +510,14 @@ class Trainer(object):
         return iterator
 
     def get_batch(
-        self,
-        iter_name,
-        lang1,
-        lang2=None,
-        stream=False,
-        span=None,
-        self_training=False,
-        st_scores_cutoff=None,
+            self,
+            iter_name,
+            lang1,
+            lang2=None,
+            stream=False,
+            span=None,
+            self_training=False,
+            st_scores_cutoff=None,
     ):
         """
         Return a batch of sentences from a dataset.
@@ -520,9 +528,9 @@ class Trainer(object):
             ), f"st_scores_cutoff should only be set for self_training"
         assert lang1 in self.params.langs
         assert (
-            lang2 is None
-            or lang2 in self.params.langs
-            or (lang1, lang2) in self.params.classif_steps
+                lang2 is None
+                or lang2 in self.params.langs
+                or (lang1, lang2) in self.params.classif_steps
         )
         assert stream is False or lang2 is None
 
@@ -532,9 +540,9 @@ class Trainer(object):
             else self.iterators.get((iter_name, lang1, lang2), None)
         )
         if (
-            st_scores_cutoff
-            and self.params.st_refresh_iterator_rate > 0
-            and self.n_iter % self.params.st_refresh_iterator_rate == 0
+                st_scores_cutoff
+                and self.params.st_refresh_iterator_rate > 0
+                and self.n_iter % self.params.st_refresh_iterator_rate == 0
         ):
             iterator = None
         if iterator is None:
@@ -604,9 +612,9 @@ class Trainer(object):
         _x_mask = _x_real.clone().fill_(params.mask_index)
         probs = torch.multinomial(params.pred_probs, len(_x_real), replacement=True)
         _x = (
-            _x_mask * (probs == 0).long()
-            + _x_real * (probs == 1).long()
-            + _x_rand * (probs == 2).long()
+                _x_mask * (probs == 0).long()
+                + _x_real * (probs == 1).long()
+                + _x_rand * (probs == 2).long()
         )
         x = x.masked_scatter(pred_mask, _x)
 
@@ -628,7 +636,7 @@ class Trainer(object):
         slen, bs = x.size()
 
         obf_tokens = (x >= self.data["dico"].obf_index["CLASS"]) * (
-            x < (self.data["dico"].obf_index["CLASS"] + self.data["dico"].n_obf_tokens)
+                x < (self.data["dico"].obf_index["CLASS"] + self.data["dico"].n_obf_tokens)
         )
         dobf_mask = np.random.rand(slen, bs) <= p
         dobf_mask = torch.from_numpy(dobf_mask)
@@ -694,7 +702,7 @@ class Trainer(object):
 
         # put to negative all the obf_tokens, useful for restoration i.e replacement in string later on
         obf_tokens = (x >= self.data["dico"].obf_index["CLASS"]) * (
-            x < (self.data["dico"].obf_index["CLASS"] + self.data["dico"].n_obf_tokens)
+                x < (self.data["dico"].obf_index["CLASS"] + self.data["dico"].n_obf_tokens)
         )
         x[obf_tokens] = -x[obf_tokens]
 
@@ -770,13 +778,13 @@ class Trainer(object):
                     [
                         self.data["dico"].word2id[index]
                         for index in (
-                            " ".join(
-                                [
-                                    self.data["dico"].id2word[int(w)]
-                                    for w in x_[i].split()
-                                ]
-                            ).replace("Ġ Ġ", "Ġ")
-                        ).split()
+                        " ".join(
+                            [
+                                self.data["dico"].id2word[int(w)]
+                                for w in x_[i].split()
+                            ]
+                        ).replace("Ġ Ġ", "Ġ")
+                    ).split()
                     ]
                 )
             else:
@@ -934,14 +942,14 @@ class Trainer(object):
         # reload optimizers
         for name in self.optimizers.keys():
             if (
-                False
+                    False
             ):  # AMP checkpoint reloading is buggy, we cannot do that - TODO: fix - https://github.com/NVIDIA/apex/issues/250
                 logger.warning(f"Reloading checkpoint optimizer {name} ...")
                 self.optimizers[name].load_state_dict(data[f"{name}_optimizer"])
             else:  # instead, we only reload current iterations / learning rates
                 logger.warning(f"Not reloading checkpoint optimizer {name}.")
                 for group_id, param_group in enumerate(
-                    self.optimizers[name].param_groups
+                        self.optimizers[name].param_groups
                 ):
                     if "num_updates" not in param_group:
                         logger.warning(f"No 'num_updates' for optimizer {name}.")
@@ -972,8 +980,8 @@ class Trainer(object):
         if not self.params.is_master:
             return
         if (
-            self.params.save_periodic > 0
-            and self.epoch % self.params.save_periodic == 0
+                self.params.save_periodic > 0
+                and self.epoch % self.params.save_periodic == 0
         ):
             self.save_checkpoint("periodic-%i" % self.epoch, include_optimizers=False)
 
@@ -1246,14 +1254,14 @@ class EncDecTrainer(Trainer):
         super().__init__(data, params, self.MODEL_NAMES)
 
     def mt_step(
-        self,
-        lang1,
-        lang2,
-        lambda_coeff,
-        span=None,
-        deobfuscate=False,
-        deobfuscate_p=None,
-        show_example=False,
+            self,
+            lang1,
+            lang2,
+            lambda_coeff,
+            span=None,
+            deobfuscate=False,
+            deobfuscate_p=None,
+            show_example=False,
     ):
         """
         Machine translation step.
@@ -1263,8 +1271,8 @@ class EncDecTrainer(Trainer):
         if lambda_coeff == 0:
             return
         assert (
-            deobfuscate_p is not None and 0 <= deobfuscate_p and deobfuscate_p <= 1
-        ) or not deobfuscate
+                       deobfuscate_p is not None and 0 <= deobfuscate_p and deobfuscate_p <= 1
+               ) or not deobfuscate
         # assert deobfuscate or span is not None
         params = self.params
         self.train_mode()
@@ -1375,7 +1383,7 @@ class EncDecTrainer(Trainer):
             [dec.eval() for dec in self.decoder]
 
     def bt_step(
-        self, lang1, lang2, lang3, lambda_coeff, sample_temperature, show_example=False
+            self, lang1, lang2, lang3, lambda_coeff, sample_temperature, show_example=False
     ):
         """
         Back-translation step for machine translation.
@@ -1511,7 +1519,7 @@ class EncDecTrainer(Trainer):
             )
         else:
             if self.number_consecutive_reads < params.st_sample_cache_ratio and all(
-                [len(cache) >= params.cache_warmup for cache in self.st_cache.values()]
+                    [len(cache) >= params.cache_warmup for cache in self.st_cache.values()]
             ):
                 read_from_cache = True
                 self.number_consecutive_reads += 1
@@ -1648,16 +1656,16 @@ class EncDecTrainer(Trainer):
             self.stats["processed_w"] += (len1 - 1).sum().item()
 
     def cross_language_st_selection(
-        self, generated_x2, generated_x2_len, any_successful, lang2, lang2_2, params
+            self, generated_x2, generated_x2_len, any_successful, lang2, lang2_2, params
     ):
         both_successful = [
             (res2 and res2_2)
             for res2, res2_2 in zip(any_successful[lang2], any_successful[lang2_2])
         ]
         assert (
-            len(any_successful[lang2])
-            == len(any_successful[lang2_2])
-            == len(both_successful)
+                len(any_successful[lang2])
+                == len(any_successful[lang2_2])
+                == len(both_successful)
         )
         if not any(both_successful):
             return None, None, None, None
@@ -1677,11 +1685,11 @@ class EncDecTrainer(Trainer):
         assert (x2 == self.params.eos_index).sum() == 2 * len(len2)
         assert (x2_2 == self.params.eos_index).sum() == 2 * len(len2_2)
         assert (
-            x2.shape[1]
-            == x2_2.shape[1]
-            == len(len2)
-            == len(len2_2)
-            == sum(both_successful)
+                x2.shape[1]
+                == x2_2.shape[1]
+                == len(len2)
+                == len(len2_2)
+                == sum(both_successful)
         ), (
             x2.shape[1],
             x2_2.shape[1],
@@ -1713,7 +1721,7 @@ class EncDecTrainer(Trainer):
         return x2, len2, x2_2, len2_2
 
     def generate_parallel_examples(
-        self, x1, len1, enc1, lang1, lang2, sent_ids, params
+            self, x1, len1, enc1, lang1, lang2, sent_ids, params
     ):
         lang2_id = params.lang2id[lang2]
         decoder = (
@@ -1760,7 +1768,7 @@ class EncDecTrainer(Trainer):
                 ]
                 for hyps in text_hypotheses
             ]
-            test_outputs = self.get_test_outputs(text_hypotheses, sent_ids, lang=lang2,)
+            test_outputs = self.get_test_outputs(text_hypotheses, sent_ids, lang=lang2, )
 
             assert len(test_outputs) == len(len1), (len(test_outputs), len(len1))
             test_outputs = [
@@ -1779,8 +1787,8 @@ class EncDecTrainer(Trainer):
             # gather the lengths of the selected indices
             first_successful_index = (
                 torch.tensor([i for i in first_successful_index if i is not None])
-                .long()
-                .to(x2.device)
+                    .long()
+                    .to(x2.device)
             )
             len2 = len2.gather(1, first_successful_index.view(-1, 1)).squeeze(1)
             assert len(len2.shape) == 1
@@ -1797,11 +1805,11 @@ class EncDecTrainer(Trainer):
             )
             assert (x2 == self.params.eos_index).sum() == 2 * len(selected_len1)
             assert (
-                selected_x1.shape[1]
-                == x2.shape[1]
-                == len(selected_len1)
-                == len(len2)
-                == sum(any_successful)
+                    selected_x1.shape[1]
+                    == x2.shape[1]
+                    == len(selected_len1)
+                    == len(len2)
+                    == sum(any_successful)
             ), (
                 selected_x1.shape[1],
                 x2.shape[1],
@@ -1832,18 +1840,18 @@ class EncDecTrainer(Trainer):
         return selected_x1, selected_len1, x2, len2, any_successful
 
     def train_on_st_data(
-        self,
-        selected_x1,
-        selected_len1,
-        lang1,
-        x2,
-        len2,
-        lang2,
-        dico,
-        params,
-        lambda_coeff,
-        show_example,
-        lang_src,
+            self,
+            selected_x1,
+            selected_len1,
+            lang1,
+            x2,
+            len2,
+            lang2,
+            dico,
+            params,
+            lambda_coeff,
+            show_example,
+            lang_src,
     ):
         lang1_id = params.lang2id[lang1]
         lang2_id = params.lang2id[lang2]
@@ -1889,8 +1897,8 @@ class EncDecTrainer(Trainer):
         self.st_translation_stats[key]["successful"] += sum(any_successful)
         self.st_translation_stats[key]["failed"] += len(any_successful)
         if (
-            sum(self.st_translation_stats[key].values()) > 0
-            and self.params.st_show_stats
+                sum(self.st_translation_stats[key].values()) > 0
+                and self.params.st_show_stats
         ):
             logger.info(
                 f"Ratio of successful translations {key}: "

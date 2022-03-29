@@ -9,6 +9,8 @@ import argparse
 import json
 import random
 
+import wandb
+
 from .src.distiller import DistillationTrainer
 from .src.data.loader import check_data_params, load_data
 from .src.evaluation.evaluator import SingleEvaluator, EncDecEvaluator
@@ -17,6 +19,44 @@ from .src.slurm import init_signal_handler, init_distributed_mode
 from .src.trainer import SingleTrainer, EncDecTrainer
 from .src.utils import bool_flag, initialize_exp, set_sampling_probs, shuf_order
 from .src.utils import print_memory
+
+# python -m codegen_sources.model.train \
+# --exp_name deobfuscation \
+# --dump_path '/home/igor/PycharmProjects/CodeGen/checkpoints' \
+# --data_path '/home/igor/PycharmProjects/datasets/java-med/4gpus/XLM-syml' \
+# --split_data_accross_gpu local \
+# --do_steps 'java_dictionary-java_obfuscated' \
+# --obf_proba '0.5' \
+# --mask_length poisson \
+# --encoder_only False \
+# --n_layers 0 \
+# --n_layers_encoder 1 \
+# --n_layers_decoder 1 \
+# --emb_dim 64 \
+# --n_heads 1 \
+# --lgs 'java_dictionary-java_obfuscated' \
+# --lgs_mapping 'java_dictionary:java,java_obfuscated:java' \
+# --gelu_activation true \
+# --roberta_mode false \
+# --max_vocab 64000 \
+# --amp 2 \
+# --fp16 true \
+# --tokens_per_batch 3000 \
+# --group_by_size true \
+# --max_batch_size 1 \
+# --max_len 2000 \
+# --epoch_size 50000 \
+# --max_epoch 10000000 \
+# --split_data_accross_gpu local \
+# --optimizer 'adam_inverse_sqrt,warmup_updates=10000,lr=0.0001,weight_decay=0.01' \
+# --eval_bleu true \
+# --eval_subtoken_score true \
+# --save_periodic 10 \
+# --validation_metrics 'valid_obf_proba_#obf_proba_mt_subtoken_F1' \
+# --stopping_criterion 'valid_obf_proba_#obf_proba_mt_subtoken_F1,10' \
+# --distillation true \
+# --teacher_path '/home/igor/PycharmProjects/CodeGen/models/DOBF_transcoder_size.pth' \
+# --debug_train true
 
 
 def get_parser():
@@ -860,6 +900,7 @@ if __name__ == "__main__":
     # generate parser / parse parameters
     parser = get_parser()
     params = parser.parse_args()
+    wandb.init(project="dobf-distillation", config=vars(params))
 
     # debug mode
     if params.debug:
