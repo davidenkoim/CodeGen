@@ -865,7 +865,7 @@ if __name__ == "__main__":
     parser = get_parser()
     params = parser.parse_args()
     # torchrun support
-    params.local_rank = getattr(os.environ, 'LOCAL_RANK', params.local_rank)
+    params.local_rank = int(os.environ.get('LOCAL_RANK', params.local_rank))
 
     # debug mode
     if params.debug:
