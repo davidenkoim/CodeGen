@@ -12,14 +12,14 @@ import random
 
 from torch.distributed.elastic.multiprocessing.errors import record
 
-from codegen_sources.model.src.distiller import DistillationTrainer
-from codegen_sources.model.src.data.loader import check_data_params, load_data
-from codegen_sources.model.src.evaluation.evaluator import SingleEvaluator, EncDecEvaluator
-from codegen_sources.model.src.model import check_model_params, build_model, build_classifier
-from codegen_sources.model.src.slurm import init_signal_handler, init_distributed_mode
-from codegen_sources.model.src.trainer import SingleTrainer, EncDecTrainer
-from codegen_sources.model.src.utils import bool_flag, initialize_exp, set_sampling_probs, shuf_order
-from codegen_sources.model.src.utils import print_memory
+from src.distiller import DistillationTrainer
+from src.data.loader import check_data_params, load_data
+from src.evaluation.evaluator import SingleEvaluator, EncDecEvaluator
+from src.model import check_model_params, build_model, build_classifier
+from src.slurm import init_signal_handler, init_distributed_mode
+from src.trainer import SingleTrainer, EncDecTrainer
+from src.utils import bool_flag, initialize_exp, set_sampling_probs, shuf_order
+from src.utils import print_memory
 
 
 def get_parser():
