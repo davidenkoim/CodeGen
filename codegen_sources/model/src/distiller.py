@@ -51,8 +51,9 @@ class DistillationTrainer(EncDecTrainer):
         teacher_encoder, teacher_decoder = build_model(reloaded_params, dico)
         self.teacher_encoder = teacher_encoder[0]
         self.teacher_decoder = teacher_decoder[0]
-        self.teacher_encoder.cuda()
-        self.teacher_decoder.cuda()
+        device = f"cuda:{max(params.local_rank, 0)}"
+        self.teacher_encoder.cuda(device=device)
+        self.teacher_decoder.cuda(device=device)
         self.teacher_encoder.eval()
         self.teacher_decoder.eval()
 
