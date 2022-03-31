@@ -49,11 +49,8 @@ class DistillationTrainer(EncDecTrainer):
 
         # build model / reload weights (in the build_model method)
         teacher_encoder, teacher_decoder = build_model(reloaded_params, dico)
-        self.teacher_encoder = teacher_encoder[0]
-        self.teacher_decoder = teacher_decoder[0]
-        device = f"cuda:{max(params.local_rank, 0)}"
-        self.teacher_encoder.cuda(device=device)
-        self.teacher_decoder.cuda(device=device)
+        self.teacher_encoder = teacher_encoder[0].cpu()
+        self.teacher_decoder = teacher_decoder[0].cpu()
         self.teacher_encoder.eval()
         self.teacher_decoder.eval()
 
@@ -134,18 +131,19 @@ class DistillationTrainer(EncDecTrainer):
         y = x2[1:].masked_select(pred_mask[:-1])
         assert len(y) == (len2 - 1).sum().item()
 
+        with torch.no_grad():
+            _, _, t_scores, _ = self.model_forward(self.teacher_encoder, self.teacher_decoder,
+                                                   langs1, langs2, len1, len2, pred_mask, spans, x1, x2, y)
+
         # cuda
-        x1, len1, langs1, x2, len2, langs2, y, spans = to_cuda(
-            x1, len1, langs1, x2, len2, langs2, y, spans
+        x1, len1, langs1, x2, len2, langs2, y, spans, t_scores = to_cuda(
+            x1, len1, langs1, x2, len2, langs2, y, spans, t_scores
         )
 
         student_encoder = self.encoder[0]
         student_decoder = self.decoder[lang2_id] if params.separate_decoders else self.decoder[0]
         _, _, s_scores, dobf_loss = self.model_forward(student_encoder, student_decoder,
                                                        langs1, langs2, len1, len2, pred_mask, spans, x1, x2, y)
-        with torch.no_grad():
-            _, _, t_scores, _ = self.model_forward(self.teacher_encoder, self.teacher_decoder,
-                                                   langs1, langs2, len1, len2, pred_mask, spans, x1, x2, y)
 
         kld_loss = self.kld_loss_fct(F.log_softmax(s_scores / self.temperature_kld, dim=-1),
                                      F.softmax(t_scores / self.temperature_kld, -1)) * self.temperature_kld ** 2
