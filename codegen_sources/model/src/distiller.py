@@ -104,9 +104,7 @@ class DistillationTrainer(EncDecTrainer):
                 (spans, len_spans, _, _),
             ) = self.get_batch("mt_spans", lang1, lang2, span=span)
         elif deobfuscate:
-            # Was: (x1, len1, _, _), (x2, len2, _, _) = ...
-            # Some kind of a bug I guess. x1 was dictionary part, x2 -- obfuscated code
-            (x2, len2, _, _), (x1, len1, _, _) = self.get_batch("mt", lang1, lang2)
+            (x1, len1, _, _), (x2, len2, _, _) = self.get_batch("mt", lang1, lang2)
             (x1, len1, x2, len2) = self.deobfuscate_by_variable(
                 x1, x2, deobfuscate_p, params.roberta_mode, rng=None
             )
@@ -192,3 +190,53 @@ class DistillationTrainer(EncDecTrainer):
             "predict", tensor=dec2, pred_mask=pred_mask, y=y, get_scores=True
         )
         return enc1, dec2, scores, loss
+
+    # def __init__(self, encoder, decoder, data, params):
+    #     logger.info("Using DistillationTrainer...")
+    #     # models which will be shared across GPUs
+    #     self.MODEL_NAMES = ["encoder", "decoder", "teacher_encoder", "teacher_decoder"]
+    #
+    #     # model / data / params
+    #     self.encoder = encoder
+    #     self.decoder = decoder
+    #
+    #     self.st_translation_stats = {}
+    #     # reload model
+    #     reloaded = torch.load(params.teacher_path, map_location="cpu")
+    #     # change params of the reloaded model so that it will
+    #     # reload its own weights and not the MLM or DOBF pretrained model
+    #     reloaded["params"]["reload_model"] = ",".join([params.teacher_path] * 2)
+    #     reloaded["params"]["lgs_mapping"] = ""
+    #     reloaded["params"]["reload_encoder_for_decoder"] = False
+    #     reloaded_params = AttrDict(reloaded["params"])
+    #
+    #     # build dictionary / update parameters
+    #     dico = Dictionary(
+    #         reloaded["dico_id2word"], reloaded["dico_word2id"], reloaded["dico_counts"]
+    #     )
+    #     assert reloaded_params.n_words == len(dico)
+    #     assert reloaded_params.bos_index == dico.index(BOS_WORD)
+    #     assert reloaded_params.eos_index == dico.index(EOS_WORD)
+    #     assert reloaded_params.pad_index == dico.index(PAD_WORD)
+    #     assert reloaded_params.unk_index == dico.index(UNK_WORD)
+    #     assert reloaded_params.mask_index == dico.index(MASK_WORD)
+    #
+    #     assert data["dico"].word2id == dico.word2id
+    #
+    #     # build model / reload weights (in the build_model method)
+    #     teacher_encoder, teacher_decoder = build_model(reloaded_params, dico)
+    #     self.teacher_encoder = teacher_encoder[0]
+    #     self.teacher_decoder = teacher_decoder[0]
+    #     self.teacher_encoder.cuda()
+    #     self.teacher_decoder.cuda()
+    #     self.teacher_encoder.eval()
+    #     self.teacher_decoder.eval()
+    #
+    #     self.kld_loss_fct = nn.KLDivLoss(reduction="batchmean")
+    #     self.temperature_kld = params.temperature_kld
+    #     self.lambda_kld = params.lambda_kld
+    #
+    #     super(EncDecTrainer, self).__init__(data, params, self.MODEL_NAMES)
+    #
+    #     for l1, l2 in params.do_steps:
+    #         self.stats[f"KLD-{l1}-{l2}"] = []
