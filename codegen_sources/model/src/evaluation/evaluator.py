@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from sklearn.metrics import roc_auc_score, average_precision_score
+from tqdm import tqdm
 
 from .comp_acc_computation import load_evosuite_transcoder_tests, eval_function_output
 from .subtoken_score import run_subtoken_score
@@ -791,9 +792,9 @@ class EncDecEvaluator(Evaluator):
             sources = []
             references = []
             for i, batch in enumerate(
-                self.get_iterator(
+                tqdm(self.get_iterator(
                     data_set, lang1, lang2 if lang2 != lang1 else None, span=span
-                )
+                ), desc=f"local-rank-{params.local_rank}", mininterval=1.)
             ):
                 spans = None
                 assert len(batch) >= 2
