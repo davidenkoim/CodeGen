@@ -1061,7 +1061,7 @@ class EncDecEvaluator(Evaluator):
             )
             hyp_path = os.path.join(params.hyp_path, hyp_name)
             hyp_paths.append(hyp_path)
-            print(f"outputing hypotheses in {hyp_path}")
+            print(f"outputting hypotheses in {hyp_path}")
             with open(hyp_path, "w", encoding="utf-8") as f:
                 f.write("\n".join([hyp[beam_number] for hyp in hypothesis]) + "\n")
             restore_segmentation(
