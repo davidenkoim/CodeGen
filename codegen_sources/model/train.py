@@ -18,8 +18,9 @@ from src.model import check_model_params, build_model, build_classifier
 from src.slurm import init_signal_handler, init_distributed_mode
 from src.trainer import SingleTrainer, EncDecTrainer
 from src.utils import bool_flag, initialize_exp, set_sampling_probs, shuf_order
-from iren.distillation.trainer import DistillationTrainer
 from src.utils import print_memory
+from iren.distillation.trainer import DistillationTrainer
+from iren.distillation.evaluator import DistillationEvaluator
 
 
 def get_parser():
@@ -738,9 +739,11 @@ def main(params):
     if params.encoder_only:
         trainer = SingleTrainer(model, data, params, classifier)
         evaluator = SingleEvaluator(trainer, data, params)
+    elif params.distillation:
+        trainer = DistillationTrainer(encoder, decoder, data, params)
+        evaluator = DistillationEvaluator(trainer, data, params)
     else:
-        trainer = EncDecTrainer(encoder, decoder, data, params) if not params.distillation else DistillationTrainer(
-            encoder, decoder, data, params)
+        trainer = EncDecTrainer(encoder, decoder, data, params)
         evaluator = EncDecEvaluator(trainer, data, params)
     print_memory(logger, "after building all models")
 
