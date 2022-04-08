@@ -357,6 +357,10 @@ def get_parser():
         default=0.5,
         help="For Deobfuscation steps, probability of obsfuscation. If = 1 everything is obfuscated, 0 only one variable.",
     )
+    parser.add_argument(
+        "--obf_type", type=str, default="all", choices=["all", "var", "class", "func"],
+        help="Identifier types to obfuscate"
+    )
 
     parser.add_argument(
         "--st_steps", type=str, default="", help="Self trainings teps using unit tests"
