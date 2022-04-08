@@ -7,10 +7,9 @@ from typing import List
 
 import torch
 from flask import Flask, request
-from flask_ngrok import run_with_ngrok
 
 from codegen_sources.model.deobfuscate import Deobfuscator, SUPPORTED_LANGUAGES
-from codegen_sources.model.mute import mute_stderr
+from iren.inference.mute import mute_stderr
 from codegen_sources.model.src.data.dictionary import EOS_WORD
 from codegen_sources.model.src.model.transformer import N_MAX_POSITIONS
 from codegen_sources.model.src.utils import restore_roberta_segmentation_sentence
@@ -21,8 +20,8 @@ log.setLevel(logging.ERROR)
 # run_with_ngrok(app)
 warnings.filterwarnings("ignore")
 
-MODEL_PATH = "/home/igor/PycharmProjects/CodeGen/models/DOBF_transcoder_size.pth"
-BPE_PATH = "/home/igor/PycharmProjects/CodeGen/data/bpe/cpp-java-python/codes"
+MODEL_PATH = "/models/DOBF_transcoder_size.pth"
+BPE_PATH = "/data/bpe/cpp-java-python/codes"
 LANGUAGE = "python"
 
 VAR_TOKEN = "VAR_0"

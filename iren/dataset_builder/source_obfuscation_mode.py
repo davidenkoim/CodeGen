@@ -21,7 +21,7 @@ logger = getLogger()
 extensions = {"java": ".java", "python": ".py", "kotlin": ".kt"}
 
 
-class MyObfuscationMode(ObfuscationMode):
+class SourceObfuscationMode(ObfuscationMode):
     def extract_data_and_tokenize(
             self, executor: Executor = None, local_parallelism: int = None
     ):

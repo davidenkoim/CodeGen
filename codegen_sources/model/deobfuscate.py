@@ -9,11 +9,9 @@ import os
 import argparse
 import time
 from pathlib import Path
-import sys
-import fastBPE
 import torch
 from codegen_sources.model.src.logger import create_logger
-from codegen_sources.preprocessing.dataset_modes.my_obfuscation_mode import read_file
+from iren.dataset_builder.source_obfuscation_mode import read_file
 from codegen_sources.preprocessing.lang_processors.cpp_processor import CppProcessor
 from codegen_sources.preprocessing.lang_processors.java_processor import JavaProcessor
 from codegen_sources.preprocessing.lang_processors.python_processor import (

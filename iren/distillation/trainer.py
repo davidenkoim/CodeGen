@@ -6,14 +6,14 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .data.dictionary import Dictionary, BOS_WORD, EOS_WORD, PAD_WORD, UNK_WORD, MASK_WORD
-from .model import build_model
-from .trainer import EncDecTrainer
-from .utils import (
+from codegen_sources.model.src.data.dictionary import Dictionary, BOS_WORD, EOS_WORD, PAD_WORD, UNK_WORD, MASK_WORD
+from codegen_sources.model.src.model import build_model
+from codegen_sources.model.src.trainer import EncDecTrainer
+from codegen_sources.model.src.utils import (
     add_noise,
     AttrDict,
 )
-from .utils import to_cuda, show_batch
+from codegen_sources.model.src.utils import to_cuda, show_batch
 
 sys.path.append(str(Path(__file__).parents[3]))
 print("adding to path", str(Path(__file__).parents[3]))

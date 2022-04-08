@@ -19,7 +19,7 @@ from codegen_sources.preprocessing.dataset_modes.monolingual_functions_mode impo
 )
 
 from codegen_sources.preprocessing.dataset_modes.monolingual_mode import MonolingualMode
-from codegen_sources.preprocessing.dataset_modes.my_obfuscation_mode import MyObfuscationMode
+from iren.dataset_builder.source_obfuscation_mode import SourceObfuscationMode
 from codegen_sources.preprocessing.dataset_modes.obfuscation_mode import ObfuscationMode
 from codegen_sources.preprocessing.dataset_modes.obfuscation_functions_mode import (
     ObfuscationFunctionsMode,
@@ -41,7 +41,7 @@ def preprocess(args):
     logger.info(f"Dataset pipeline for {args.input_path}")
     # dataset mode
     dataset_class = {
-        "my_obfuscation": MyObfuscationMode,
+        "source_obfuscation": SourceObfuscationMode,
         "obfuscation": ObfuscationMode,
         "monolingual": MonolingualMode,
         "monolingual_functions": MonolingualFunctionsMode,
@@ -141,7 +141,7 @@ if __name__ == "__main__":
         type=str,
         default="monolingual_functions",
         choices=[
-            "my_obfuscation",
+            "source_obfuscation",
             "obfuscation",
             "monolingual",
             "monolingual_functions",
