@@ -42,6 +42,8 @@ class DistillationEvaluator(EncDecEvaluator):
         super().__init__(trainer, data, params)
         self.teacher_encoder = trainer.teacher_encoder
         self.teacher_decoder = trainer.teacher_decoder
+        self.teacher_scores = {}
+        self.t_hyp_paths = {}
 
     def evaluate_mt(
             self,
@@ -93,6 +95,8 @@ class DistillationEvaluator(EncDecEvaluator):
         ):
             if deobfuscate:
                 rng = np.random.RandomState(0)
+            l1l2 = get_l1l2_string(lang1, lang2, deobfuscation_proba)
+            eval_name = f"{data_set}_{l1l2}"
 
             n_words = 0
             xe_loss = 0
@@ -154,16 +158,11 @@ class DistillationEvaluator(EncDecEvaluator):
                 )
                 enc1, _, word_scores, loss = self._model_forward(params, encoder, decoder, langs1, langs2, len1, len2,
                                                                  pred_mask, spans, x1, x2, y)
-                t_enc1, _, t_word_scores, t_loss = self._model_forward(params, teacher_encoder, teacher_decoder,
-                                                                       langs1, langs2, len1, len2,
-                                                                       pred_mask, spans, x1, x2, y)
 
                 # update stats
                 n_words += y.size(0)
                 xe_loss += loss.item() * len(y)
                 n_valid += (word_scores.max(1)[1] == y).sum().item()
-                t_xe_loss += t_loss.item() * len(y)
-                t_n_valid += (t_word_scores.max(1)[1] == y).sum().item()
 
                 # generate translation - translate / convert to text
                 if (
@@ -171,9 +170,6 @@ class DistillationEvaluator(EncDecEvaluator):
                 ) and data_set in datasets_for_bleu:
                     generated, lengths = self._generate_hypothesis(data_set, decoder, enc1, i, lang1, lang2, lang2_id,
                                                                    len1, params, x1, x2)
-                    t_generated, t_lengths = self._generate_hypothesis(data_set, teacher_decoder, t_enc1, i, lang1,
-                                                                       lang2, lang2_id, len1, params, x1, x2,
-                                                                       is_teacher=True)
 
                     hypothesis.extend(
                         convert_to_text(
@@ -184,41 +180,68 @@ class DistillationEvaluator(EncDecEvaluator):
                             generate_several_reps=True,
                         )
                     )
-                    teacher_hypothesis.extend(
-                        convert_to_text(
-                            t_generated,
-                            t_lengths,
-                            self.dico,
-                            params,
-                            generate_several_reps=True,
-                        )
-                    )
                     references.extend(convert_to_text(x2, len2, self.dico, params))
                     sources.extend(convert_to_text(x1, len1, self.dico, params))
 
+                    if eval_name not in self.t_hyp_paths:
+                        t_enc1, _, t_word_scores, t_loss = self._model_forward(params, teacher_encoder, teacher_decoder,
+                                                                               langs1, langs2, len1, len2,
+                                                                               pred_mask, spans, x1, x2, y)
+                        t_xe_loss += t_loss.item() * len(y)
+                        t_n_valid += (t_word_scores.max(1)[1] == y).sum().item()
+                        if (
+                                eval_bleu or eval_computation or eval_subtoken_score
+                        ) and data_set in datasets_for_bleu:
+                            t_generated, t_lengths = self._generate_hypothesis(data_set, teacher_decoder, t_enc1, i,
+                                                                               lang1,
+                                                                               lang2, lang2_id, len1, params, x1, x2,
+                                                                               is_teacher=True)
+                            teacher_hypothesis.extend(
+                                convert_to_text(
+                                    t_generated,
+                                    t_lengths,
+                                    self.dico,
+                                    params,
+                                    generate_several_reps=True,
+                                )
+                            )
+
             # compute perplexity and prediction accuracy
-            l1l2 = get_l1l2_string(lang1, lang2, deobfuscation_proba)
-            scores["%s_%s_mt_ppl" % (data_set, l1l2)] = np.exp(xe_loss / n_words)
-            scores["%s_%s_mt_acc" % (data_set, l1l2)] = 100.0 * n_valid / n_words
-            scores["%s_%s_mt_ppl_teacher" % (data_set, l1l2)] = np.exp(t_xe_loss / n_words)
-            scores["%s_%s_mt_acc_teacher" % (data_set, l1l2)] = 100.0 * t_n_valid / n_words
+            scores[f"{eval_name}_mt_ppl"] = np.exp(xe_loss / n_words)
+            scores[f"{eval_name}_mt_acc"] = 100.0 * n_valid / n_words
+            if f"{eval_name}_mt_ppl_teacher" not in self.teacher_scores:
+                self.teacher_scores[f"{eval_name}_mt_ppl_teacher"] = np.exp(t_xe_loss / n_words)
+                self.teacher_scores[f"{eval_name}_mt_acc_teacher"] = 100.0 * t_n_valid / n_words
 
             # write hypotheses
             if (
                     eval_bleu or eval_computation or eval_subtoken_score
             ) and data_set in datasets_for_bleu:
-                hyp_paths, t_hyp_paths, ref_path, src_path = self.write_hypo_teacher_hypo_ref_src(
-                    data_set,
-                    hypothesis,
-                    teacher_hypothesis,
-                    lang1,
-                    lang2,
-                    params,
-                    references,
-                    scores,
-                    sources,
-                    deobfuscation_proba,
-                )
+                if eval_name not in self.t_hyp_paths:
+                    hyp_paths, self.t_hyp_paths[eval_name], ref_path, src_path = self.write_hypo_teacher_hypo_ref_src(
+                        data_set,
+                        hypothesis,
+                        teacher_hypothesis,
+                        lang1,
+                        lang2,
+                        params,
+                        references,
+                        scores,
+                        sources,
+                        deobfuscation_proba,
+                    )
+                else:
+                    hyp_paths, ref_path, src_path = self.write_hypo_ref_src(
+                        data_set,
+                        hypothesis,
+                        lang1,
+                        lang2,
+                        params,
+                        references,
+                        scores,
+                        sources,
+                        deobfuscation_proba,
+                    )
 
             # check how many functions compiles + return same output as GT
             if eval_computation and data_set in datasets_for_bleu:
@@ -256,15 +279,15 @@ class DistillationEvaluator(EncDecEvaluator):
                 )
             if eval_subtoken_score and data_set in datasets_for_bleu:
                 self.compute_subtoken_metrics(scores, hyp_paths, ref_path, lang1, lang2, data_set, deobfuscation_proba)
-                self.compute_subtoken_metrics(scores, t_hyp_paths, ref_path, lang1, lang2, data_set,
-                                              deobfuscation_proba, is_teacher=True)
+                self.compute_subtoken_metrics(self.teacher_scores, self.t_hyp_paths[eval_name], ref_path, lang1, lang2,
+                                              data_set, deobfuscation_proba, is_teacher=True)
 
             # compute BLEU score
             if eval_bleu and data_set in datasets_for_bleu:
                 self.evaluate_bleu(scores, hyp_paths, ref_path, deobfuscation_proba, lang1, lang2, eval_computation,
                                    data_set)
-                self.evaluate_bleu(scores, t_hyp_paths, ref_path, deobfuscation_proba, lang1, lang2, eval_computation,
-                                   data_set, is_teacher=True)
+                self.evaluate_bleu(self.teacher_scores, self.t_hyp_paths[eval_name], ref_path, deobfuscation_proba,
+                                   lang1, lang2, eval_computation, data_set, is_teacher=True)
 
             if (
                     deobfuscate
@@ -273,17 +296,23 @@ class DistillationEvaluator(EncDecEvaluator):
                     and data_set in datasets_for_bleu
             ):
                 # TODO clean lang1
-                vizualize_do_files_student_teacher(lang1.split("_")[0], src_path, ref_path, hyp_paths, t_hyp_paths)
+                vizualize_do_files_student_teacher(lang1.split("_")[0], src_path, ref_path, hyp_paths, self.t_hyp_paths[eval_name])
+        scores.update(self.teacher_scores)
 
     @staticmethod
     def evaluate_bleu(scores, hyp_paths, ref_path, deobfuscation_proba, lang1, lang2, eval_computation, data_set,
                       is_teacher=False):
+        prefix = f"{data_set}_{get_l1l2_string(lang1, lang2, deobfuscation_proba)}_mt_bleu"
+        if is_teacher and any(
+                key.startswith(prefix) and
+                key.endswith("_teacher") for
+                key in scores.keys()):
+            return
         # evaluate BLEU score
         bleu = eval_moses_bleu(ref_path, hyp_paths[0])
         logger.info(f"BLEU {hyp_paths[0]} {ref_path} {'teacher' if is_teacher else ''}: {bleu:f}")
         scores[
-            f"{data_set}_{get_l1l2_string(lang1, lang2, deobfuscation_proba)}_mt_bleu" +
-            (f"_teacher" if is_teacher else "")
+            prefix + (f"_teacher" if is_teacher else "")
             ] = bleu
         if eval_computation:
             for hyp_path in hyp_paths:
@@ -292,14 +321,19 @@ class DistillationEvaluator(EncDecEvaluator):
     @staticmethod
     def compute_subtoken_metrics(scores, hyp_paths, ref_path, lang1, lang2, data_set, deobfuscation_proba,
                                  is_teacher=False):
+        prefix = f"{data_set}_{get_l1l2_string(lang1, lang2, deobfuscation_proba)}_mt_subtoken"
+        if is_teacher and any(
+                key.startswith(prefix) and
+                key.endswith("_teacher") for
+                key in scores.keys()):
+            return
         subtoken_level_scores = run_subtoken_score(ref_path, hyp_paths)
         for score_type, value in subtoken_level_scores.items():
             logger.info(
                 f"Subtoken {score_type} score {hyp_paths} {ref_path} {'teacher' if is_teacher else ''}: {value:f}"
             )
             scores[
-                f"{data_set}_{get_l1l2_string(lang1, lang2, deobfuscation_proba)}_mt_subtoken_{score_type}" +
-                (f"_teacher" if is_teacher else "")
+                f"{prefix}_{score_type}" + ("_teacher" if is_teacher else "")
                 ] = value
 
     def _generate_hypothesis(self, data_set, decoder, enc1, i, lang1, lang2, lang2_id, len1, params, x1, x2,
@@ -414,12 +448,7 @@ class DistillationEvaluator(EncDecEvaluator):
         t_hyp_paths = []
         # export sentences to hypothesis file / restore BPE segmentation
         for beam_number in range(len(teacher_hypothesis[0])):
-            hyp_name = "hyp{0}.{1}.{2}_beam{3}.teacher.txt".format(
-                scores["epoch"],
-                get_l1l2_string(lang1, lang2, deobfuscation_proba),
-                data_set,
-                beam_number,
-            )
+            hyp_name = f"{get_l1l2_string(lang1, lang2, deobfuscation_proba)}.{data_set}_beam{beam_number}.teacher.txt"
             hyp_path = os.path.join(params.hyp_path, hyp_name)
             t_hyp_paths.append(hyp_path)
             print(f"outputting teacher hypotheses in {hyp_path}")
