@@ -701,12 +701,21 @@ def get_parser():
         "--teacher_path", type=str, default="", help="Teacher model path"
     )
 
+    # Distillation coefficients
     parser.add_argument(
-        "--lambda_kld", type=float, default=1, help="Distillation coefficient"
+        "--lambda_kld", type=float, default=1, help="Distillation coefficient for KL divergence"
     )
 
     parser.add_argument(
         "--temperature_kld", type=float, default=2, help="Temperature of softmax before KLD"
+    )
+
+    parser.add_argument(
+        "--lambda_mse", type=float, default=1, help="Distillation coefficient for logits MSE"
+    )
+
+    parser.add_argument(
+        "--lambda_cos", type=float, default=1, help="Distillation coefficient for hidden states cosine similarity"
     )
 
     return parser

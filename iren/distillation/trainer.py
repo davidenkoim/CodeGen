@@ -58,6 +58,10 @@ class DistillationTrainer(EncDecTrainer):
         self.kld_loss_fct = nn.KLDivLoss(reduction="batchmean")
         self.temperature_kld = params.temperature_kld
         self.lambda_kld = params.lambda_kld
+        self.mse_loss_fct = nn.MSELoss(reduction="sum")
+        self.lambda_mse = params.lambda_mse
+        self.cosine_loss_fct = nn.CosineEmbeddingLoss(reduction="mean")
+        self.lambda_cos = params.lambda_cos
 
     def mt_step(
             self,
@@ -135,17 +139,19 @@ class DistillationTrainer(EncDecTrainer):
         )
 
         student_encoder, student_decoder = self._get_enc_dec(self.encoder, self.decoder, lang2_id, params)
-        _, _, scores, loss = self.model_forward(student_encoder, student_decoder,
-                                                langs1, langs2, len1, len2, pred_mask, spans, x1, x2, y)
+        _, dec, scores, loss = self.model_forward(student_encoder, student_decoder,
+                                                  langs1, langs2, len1, len2, pred_mask, spans, x1, x2, y)
 
         teacher_encoder, teacher_decoder = self._get_enc_dec(self.teacher_encoder, self.teacher_decoder, lang2_id,
                                                              params)
         with torch.no_grad():
-            _, _, t_scores, t_loss = self.model_forward(teacher_encoder, teacher_decoder,
-                                                        langs1, langs2, len1, len2, pred_mask, spans, x1, x2, y)
+            _, t_dec, t_scores, t_loss = self.model_forward(teacher_encoder, teacher_decoder,
+                                                            langs1, langs2, len1, len2, pred_mask, spans, x1, x2, y)
 
         kld_loss = self.kld_loss_fct(F.log_softmax(scores / self.temperature_kld, dim=-1),
                                      F.softmax(t_scores / self.temperature_kld, -1)) * self.temperature_kld ** 2
+
+        loss_sum = lambda_coeff * loss + self.lambda_kld * kld_loss
 
         if deobfuscate:
             self.stats_append("DO-%s-%s" % (lang1, lang2), loss.item())
@@ -157,13 +163,20 @@ class DistillationTrainer(EncDecTrainer):
 
         self.stats_append(f"KLD-{lang1}-{lang2}", kld_loss.item())
 
+        if self.lambda_mse > 0:
+            mse_loss = self.mse_loss_fct(scores, t_scores) / x1.size(1)  # batchmean
+            self.stats_append(f"MSE-{lang1}-{lang2}", mse_loss.item())
+            loss_sum += self.lambda_mse * mse_loss
+        if self.lambda_cos > 0 and dec.size() == t_dec.size():
+            cos_loss = self.compute_cosine_loss(dec, t_dec, pred_mask)
+            self.stats_append(f"COS-{lang1}-{lang2}", cos_loss.item())
+            loss_sum += self.lambda_cos * cos_loss
+
         n_words = y.size(0)
         n_valid = (scores.max(1)[1] == y).sum().item()
         t_n_valid = (t_scores.max(1)[1] == y).sum().item()
         self.stats_append(f"BPE-acc-{lang1}-{lang2}", n_valid / n_words)
         self.stats_append(f"BPE-acc-t-{lang1}-{lang2}", t_n_valid / n_words)
-
-        loss_sum = lambda_coeff * loss + self.lambda_kld * kld_loss
 
         # optimize
         self.optimize(loss_sum)
@@ -172,6 +185,16 @@ class DistillationTrainer(EncDecTrainer):
         self.n_sentences += params.batch_size
         self.stats["processed_s"] += len2.size(0)
         self.stats["processed_w"] += (len2 - 1).sum().item()
+
+    def compute_cosine_loss(self, dec, t_dec, pred_mask):
+        dim = dec.size(-1)
+        mask = pred_mask.unsqueeze(-1).expand_as(dec)
+        dec_slct = torch.masked_select(dec, mask)
+        dec_slct = dec_slct.view(-1, dim)
+        t_dec_slct = torch.masked_select(t_dec, mask)
+        t_dec_slct = t_dec_slct.view(-1, dim)
+        target = dec_slct.new(dec_slct.size(0)).fill_(1)
+        return self.cosine_loss_fct(dec_slct, t_dec_slct, target)
 
     @staticmethod
     def _get_enc_dec(encoder, decoder, lang2_id, params):
