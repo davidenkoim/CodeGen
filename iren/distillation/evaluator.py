@@ -193,9 +193,8 @@ class DistillationEvaluator(EncDecEvaluator):
                                 eval_bleu or eval_computation or eval_subtoken_score
                         ) and data_set in datasets_for_bleu:
                             t_generated, t_lengths = self._generate_hypothesis(data_set, teacher_decoder, t_enc1, i,
-                                                                               lang1,
-                                                                               lang2, lang2_id, len1, params, x1, x2,
-                                                                               is_teacher=True)
+                                                                               lang1, lang2, lang2_id, len1, params, x1,
+                                                                               x2, is_teacher=True)
                             teacher_hypothesis.extend(
                                 convert_to_text(
                                     t_generated,
@@ -296,7 +295,8 @@ class DistillationEvaluator(EncDecEvaluator):
                     and data_set in datasets_for_bleu
             ):
                 # TODO clean lang1
-                vizualize_do_files_student_teacher(lang1.split("_")[0], src_path, ref_path, hyp_paths, self.t_hyp_paths[eval_name])
+                vizualize_do_files_student_teacher(lang1.split("_")[0], src_path, ref_path, hyp_paths,
+                                                   self.t_hyp_paths[eval_name])
         scores.update(self.teacher_scores)
 
     @staticmethod
