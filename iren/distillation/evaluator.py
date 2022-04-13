@@ -28,6 +28,8 @@ from codegen_sources.model.src.utils import (
 )
 from codegen_sources.preprocessing.lang_processors.lang_processor import LangProcessor
 
+from iren.utils.ranking_metrics import run_ranking_scoring
+
 # Adding obf_proba = 0 to evaluation (1 in the bottom not a bug)
 EVAL_OBF_PROBAS.append(1)
 
@@ -156,7 +158,7 @@ class DistillationEvaluator(EncDecEvaluator):
                 x1, len1, langs1, x2, len2, langs2, y, spans = to_cuda(
                     x1, len1, langs1, x2, len2, langs2, y, spans
                 )
-                enc1, _, word_scores, loss = self._model_forward(params, encoder, decoder, langs1, langs2, len1, len2,
+                enc1, _, word_scores, loss = self._model_forward(encoder, decoder, langs1, langs2, len1, len2,
                                                                  pred_mask, spans, x1, x2, y)
 
                 # update stats
@@ -184,7 +186,7 @@ class DistillationEvaluator(EncDecEvaluator):
                     sources.extend(convert_to_text(x1, len1, self.dico, params))
 
                     if eval_name not in self.t_hyp_paths:
-                        t_enc1, _, t_word_scores, t_loss = self._model_forward(params, teacher_encoder, teacher_decoder,
+                        t_enc1, _, t_word_scores, t_loss = self._model_forward(teacher_encoder, teacher_decoder,
                                                                                langs1, langs2, len1, len2,
                                                                                pred_mask, spans, x1, x2, y)
                         t_xe_loss += t_loss.item() * len(y)
@@ -288,6 +290,11 @@ class DistillationEvaluator(EncDecEvaluator):
                 self.evaluate_bleu(self.teacher_scores, self.t_hyp_paths[eval_name], ref_path, deobfuscation_proba,
                                    lang1, lang2, eval_computation, data_set, is_teacher=True)
 
+            if params.eval_ranking_metrics and params.beam_size > 1:
+                self.compute_ranking_metrics(scores, hyp_paths, ref_path, deobfuscation_proba, lang1, lang2, data_set)
+                self.compute_ranking_metrics(self.teacher_scores, self.t_hyp_paths[eval_name], ref_path,
+                                             deobfuscation_proba, lang1, lang2, data_set, is_teacher=True)
+
             if (
                     deobfuscate
                     and eval_bleu
@@ -298,6 +305,24 @@ class DistillationEvaluator(EncDecEvaluator):
                 vizualize_do_files_student_teacher(lang1.split("_")[0], src_path, ref_path, hyp_paths,
                                                    self.t_hyp_paths[eval_name])
         scores.update(self.teacher_scores)
+
+    @staticmethod
+    def compute_ranking_metrics(scores, hyp_paths, ref_path, deobfuscation_proba, lang1, lang2, data_set,
+                                is_teacher=False):
+        prefix = f"{data_set}_{get_l1l2_string(lang1, lang2, deobfuscation_proba)}_mt_ranking"
+        if is_teacher and any(
+                key.startswith(prefix) and
+                key.endswith("_teacher") for
+                key in scores.keys()):
+            return
+        ranking_metrics = run_ranking_scoring(ref_path, hyp_paths)
+        for metric_type, value in ranking_metrics.items():
+            logger.info(
+                f"Ranking {metric_type} score {hyp_paths} {ref_path} {'teacher' if is_teacher else ''}: {value:f}"
+            )
+            scores[
+                f"{prefix}_{metric_type}" + ("_teacher" if is_teacher else "")
+                ] = value
 
     @staticmethod
     def evaluate_bleu(scores, hyp_paths, ref_path, deobfuscation_proba, lang1, lang2, eval_computation, data_set,
@@ -374,7 +399,7 @@ class DistillationEvaluator(EncDecEvaluator):
                 length_penalty=params.length_penalty,
                 early_stopping=params.early_stopping,
                 max_len=len_v,
-            )
+            )  # (len, beam, batch), (batch, beam)
             # print(f'path 2: {generated.shape}')
         if i == 0:
             # show 1 evaluation example and the corresponding model generation
@@ -406,7 +431,7 @@ class DistillationEvaluator(EncDecEvaluator):
         return encoder, decoder
 
     @staticmethod
-    def _model_forward(params, encoder, decoder, langs1, langs2, len1, len2, pred_mask, spans, x1, x2, y):
+    def _model_forward(encoder, decoder, langs1, langs2, len1, len2, pred_mask, spans, x1, x2, y):
         # encode source sentence
         enc1 = encoder(
             "fwd", x=x1, lengths=len1, langs=langs1, causal=False, spans=spans

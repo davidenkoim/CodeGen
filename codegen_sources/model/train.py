@@ -595,6 +595,12 @@ def get_parser():
 
     # evaluation
     parser.add_argument(
+        "--eval_ranking_metrics",
+        type=bool_flag,
+        default=False,
+        help="Evaluate ranking metrics during MT training (needs beam_size > 1)",
+    )
+    parser.add_argument(
         "--eval_bleu",
         type=bool_flag,
         default=False,
