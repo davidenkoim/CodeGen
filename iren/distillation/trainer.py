@@ -1,5 +1,7 @@
 import sys
 import time
+from functools import lru_cache
+from itertools import chain
 from logging import getLogger
 from pathlib import Path
 
@@ -277,12 +279,14 @@ class DistillationTrainer(EncDecTrainer):
             dobf_mask = _get_dobf_mask(di, p, obf_type, rng, dico)
             if dobf_mask is None:
                 continue
+            # shuffle masks
+            random_mapping = _get_random_mapping(di, obf_type, rng, dico)
             for m, (k, v) in enumerate(di):
                 if dobf_mask[m]:
                     x_[i] = x_[i].replace(f"-{k}", f"{v}")
                 else:
-                    d_.append((k, v))
-                    x_[i] = x_[i].replace(f"-{k}", f"{k}")
+                    d_.append((random_mapping[k], v))
+                    x_[i] = x_[i].replace(f"-{k}", f"{random_mapping[k]}")
             if roberta_mode:
                 # we need to remove the double space introduced during deobfuscation, i.e the "Ġ Ġ"
                 sent_ids = np.array(
@@ -403,8 +407,8 @@ def _get_dobf_mask(d, p, obf_type, rng, dico):
     else:
         obf_type = obf_type.upper()
         type_idx = dico.obf_index[obf_type]
-        obf_tokens = {str(i) for i in range(type_idx, type_idx + OBFS[obf_type])}
-        idxs_to_choose = [i for i, (v, _) in enumerate(d) if v in obf_tokens]
+        obf_idxs = set(_get_obf_idxs(type_idx, OBFS[obf_type]))
+        idxs_to_choose = [i for i, (v, _) in enumerate(d) if v in obf_idxs]
         if not idxs_to_choose:
             return None
         idxs_to_choose_mask = _get_mask(idxs_to_choose, p, rng)
@@ -426,3 +430,22 @@ def _get_mask(d, p, rng):
         else:
             mask[np.random.randint(0, len(d))] = False
     return mask
+
+
+def _get_random_mapping(d, obf_type, rng, dico):
+    if obf_type == "all":
+        return dict(chain(*[_get_random_mapping(d, t, rng, dico).items() for t in OBFS.keys()]))
+    else:
+        obf_type = obf_type.upper()
+        type_idx = dico.obf_index[obf_type]
+        obf_idxs = _get_obf_idxs(type_idx, OBFS[obf_type])
+        obf_idxs_set = set(obf_idxs)
+        typed_idxs = [k for k, _ in d if k in obf_idxs_set]
+        rnd_idxs = rng.choice(obf_idxs, size=len(typed_idxs), replace=False) if rng \
+            else np.random.choice(obf_idxs, size=len(typed_idxs), replace=False)
+        return dict(zip(typed_idxs, rnd_idxs))
+
+
+@lru_cache()
+def _get_obf_idxs(idx, number):
+    return [str(i) for i in range(idx, idx + number)]
