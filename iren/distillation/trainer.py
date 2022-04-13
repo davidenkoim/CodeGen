@@ -191,10 +191,8 @@ class DistillationTrainer(EncDecTrainer):
     def compute_cosine_loss(self, dec, t_dec, pred_mask):
         dim = dec.size(-1)
         mask = pred_mask.unsqueeze(-1).expand_as(dec)
-        dec_slct = torch.masked_select(dec, mask)
-        dec_slct = dec_slct.view(-1, dim)
-        t_dec_slct = torch.masked_select(t_dec, mask)
-        t_dec_slct = t_dec_slct.view(-1, dim)
+        dec_slct = dec[mask].view(-1, dim)
+        t_dec_slct = t_dec[mask].view(-1, dim)
         target = dec_slct.new(dec_slct.size(0)).fill_(1)
         return self.cosine_loss_fct(dec_slct, t_dec_slct, target)
 
