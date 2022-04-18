@@ -679,6 +679,9 @@ def get_parser():
         "--local_rank", type=int, default=-1, help="Multi-GPU - Local rank"
     )
     parser.add_argument(
+        "--min_local_rank", type=int, default=0, help="Min GPU index"
+    )
+    parser.add_argument(
         "--master_port",
         type=int,
         default=-1,
@@ -887,7 +890,7 @@ if __name__ == "__main__":
     parser = get_parser()
     params = parser.parse_args()
     # torchrun support
-    params.local_rank = int(os.environ.get('LOCAL_RANK', params.local_rank))
+    params.local_rank = int(os.environ.get('LOCAL_RANK', params.local_rank)) + int(params.min_local_rank)
 
     # debug mode
     if params.debug:
