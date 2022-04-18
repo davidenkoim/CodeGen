@@ -1,7 +1,5 @@
 import sys
 import time
-from functools import lru_cache
-from itertools import chain
 from logging import getLogger
 from pathlib import Path
 
@@ -10,14 +8,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from codegen_sources.model.src.data.dictionary import Dictionary, BOS_WORD, EOS_WORD, PAD_WORD, UNK_WORD, MASK_WORD, \
-    OBFS
+from codegen_sources.model.src.data.dictionary import Dictionary, BOS_WORD, EOS_WORD, PAD_WORD, UNK_WORD, MASK_WORD
 from codegen_sources.model.src.model import build_model
 from codegen_sources.model.src.trainer import EncDecTrainer
 from codegen_sources.model.src.utils import (
     add_noise,
-    AttrDict, batch_sentences,
-)
+    AttrDict, )
 from codegen_sources.model.src.utils import to_cuda, show_batch
 
 sys.path.append(str(Path(__file__).parents[3]))
@@ -202,122 +198,6 @@ class DistillationTrainer(EncDecTrainer):
         dec = decoder[lang2_id] if params.separate_decoders else decoder[0]
         return enc, dec
 
-    def deobfuscate_by_variable(self, x, y, p, roberta_mode, rng=None, obf_type="all"):
-        """
-        Deobfuscate class, function and variable name with probability p, by variable blocked.
-        We chose some variables VAR_N, functions FUNC_N or class CLASS_N - with probability p - to deobfuscate entirely.
-        I.e. if VAR_0 is picked, all the occurrences of VAR_0 are deobfuscated.
-        x : tensor slen x bs , x is obfuscated, i.e variable, function and classes names are
-        replaced by special tokens. ( CLASS_X, FUNC_X and VAR_X)
-        y : ylen x bs contains the dictionary of obfuscated tokens, i.e 'CLASS_0 class_name | VAR_0 variable_name .. '
-        """
-        # put to negative all the obf_tokens, useful for restoration i.e replacement in string later on
-        dico = self.data["dico"]
-        obf_tokens = (x >= dico.obf_index["CLASS"]) * (
-                x < (dico.obf_index["CLASS"] + dico.n_obf_tokens)
-        )
-        x[obf_tokens] = -x[obf_tokens]
-
-        # convert sentences to strings and dictionary to a python dictionary (obf_token_special , original_name)
-        x_ = [
-            " ".join(
-                [
-                    str(w)
-                    for w in s
-                    if w not in [self.params.pad_index, self.params.eos_index]
-                ]
-            )
-            for s in x.transpose(0, 1).tolist()
-        ]
-        y_ = [
-            " ".join(
-                [
-                    str(w)
-                    for w in s
-                    if w not in [self.params.pad_index, self.params.eos_index]
-                ]
-            )
-            for s in y.transpose(0, 1).tolist()
-        ]
-
-        # filter out sentences without identifiers
-        xy = tuple(zip(*[(xi, yi) for xi, yi in zip(x_, y_) if yi]))
-        x_, y_ = (list(xy[0]), list(xy[1])) if xy else ([], [])
-
-        if roberta_mode:
-            sep = (
-                f" {dico.word2id['Ġ|']} {dico.word2id['Ġ']} "
-            )
-        else:
-            sep = f" {dico.word2id['|']} "
-        # reversed order to have longer obfuscation first, to make replacement in correct order
-        # try:
-        d = [
-            list(
-                reversed(
-                    [
-                        (
-                            mapping.strip().split()[0],
-                            " ".join(mapping.strip().split()[1:]),
-                        )
-                        for mapping in pred.split(sep)
-                    ]
-                )
-            )
-            for pred in y_
-        ]
-
-        # restore x i.e select variable with probability p and restore all occurence of this variable
-        # keep only unrestored variable in dictionary d_
-        x = []
-        y = []
-
-        for i, di in enumerate(d):
-            d_ = []
-            dobf_mask = _get_dobf_mask(di, p, obf_type, rng, dico)
-            if dobf_mask is None:
-                continue
-            # shuffle masks
-            random_mapping = _get_random_mapping(di, obf_type, rng, dico)
-            for m, (k, v) in enumerate(di):
-                if dobf_mask[m]:
-                    x_[i] = x_[i].replace(f"-{k}", f"{v}")
-                else:
-                    d_.append((random_mapping[k], v))
-                    x_[i] = x_[i].replace(f"-{k}", f"{random_mapping[k]}")
-            if roberta_mode:
-                # we need to remove the double space introduced during deobfuscation, i.e the "Ġ Ġ"
-                sent_ids = np.array(
-                    [
-                        dico.word2id[index]
-                        for index in (
-                        " ".join(
-                            [
-                                dico.id2word[int(w)]
-                                for w in x_[i].split()
-                            ]
-                        ).replace("Ġ Ġ", "Ġ")
-                    ).split()
-                    ]
-                )
-            else:
-                sent_ids = np.array([int(id) for id in x_[i].split()])
-            if len(sent_ids) < self.params.max_len:
-                x.append(sent_ids)
-                d_ids = sep.join([" ".join([k, v]) for k, v in reversed(d_)])
-                d_ids = np.array([int(id) for id in d_ids.split()])
-                y.append(d_ids)
-
-        if len(x) == 0:
-            return None, None, None, None
-
-        x, len_x = batch_sentences(x, self.params.pad_index, self.params.eos_index)
-        y, len_y = batch_sentences(y, self.params.pad_index, self.params.eos_index)
-
-        assert sum(sum((x < 0).float())) == 0
-
-        return (x, len_x, y, len_y)
-
     @staticmethod
     def model_forward(encoder, decoder, langs1, langs2, len1, len2, pred_mask, spans, x1, x2, y):
         # encode source sentence
@@ -397,53 +277,3 @@ class DistillationTrainer(EncDecTrainer):
 
         # log speed + stats + learning rate
         logger.info(s_iter + s_speed + s_lr + s_bt_samp + "\n" + s_stat)
-
-
-def _get_dobf_mask(d, p, obf_type, rng, dico):
-    if obf_type == "all":
-        return _get_mask(d, p, rng)
-    else:
-        obf_type = obf_type.upper()
-        type_idx = dico.obf_index[obf_type]
-        obf_idxs = set(_get_obf_idxs(type_idx, OBFS[obf_type]))
-        idxs_to_choose = [i for i, (v, _) in enumerate(d) if v in obf_idxs]
-        if not idxs_to_choose:
-            return None
-        idxs_to_choose_mask = _get_mask(idxs_to_choose, p, rng)
-        idxs_to_choose = [i for i, v in zip(idxs_to_choose, idxs_to_choose_mask) if not v]
-        dobf_mask = np.ones(len(d), dtype=bool)
-        dobf_mask[idxs_to_choose] = False
-        return dobf_mask
-
-
-def _get_mask(d, p, rng):
-    if rng:
-        mask = rng.rand(len(d)) <= p
-    else:
-        mask = np.random.rand(len(d)) <= p
-    # make sure at least one variable is picked
-    if sum(mask) == len(d):
-        if rng:
-            mask[rng.randint(0, len(d))] = False
-        else:
-            mask[np.random.randint(0, len(d))] = False
-    return mask
-
-
-def _get_random_mapping(d, obf_type, rng, dico):
-    if obf_type == "all":
-        return dict(chain(*[_get_random_mapping(d, t, rng, dico).items() for t in OBFS.keys()]))
-    else:
-        obf_type = obf_type.upper()
-        type_idx = dico.obf_index[obf_type]
-        obf_idxs = _get_obf_idxs(type_idx, OBFS[obf_type])
-        obf_idxs_set = set(obf_idxs)
-        typed_idxs = [k for k, _ in d if k in obf_idxs_set]
-        rnd_idxs = rng.choice(obf_idxs, size=len(typed_idxs), replace=False) if rng \
-            else np.random.choice(obf_idxs, size=len(typed_idxs), replace=False)
-        return dict(zip(typed_idxs, rnd_idxs))
-
-
-@lru_cache()
-def _get_obf_idxs(idx, number):
-    return [str(i) for i in range(idx, idx + number)]

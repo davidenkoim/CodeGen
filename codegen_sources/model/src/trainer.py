@@ -18,6 +18,7 @@ import torch
 # import wandb
 from torch.nn.utils import clip_grad_norm_
 
+from iren.utils.obfuscation import get_random_mapping, get_dobf_mask
 from .cache import ListCache, RoundRobinCache
 from .data.loader import SELF_TRAINED
 from .model.CustomDDP import CustomTorchDDP, CustomApexDDP
@@ -682,7 +683,7 @@ class Trainer(object):
 
         return (x_b, lengths)
 
-    def deobfuscate_by_variable(self, x, y, p, roberta_mode, rng=None):
+    def deobfuscate_by_variable(self, x, y, p, roberta_mode, rng=None, obf_type="all"):
         """
         Deobfuscate class, function and variable name with probability p, by variable blocked.
         We chose some variables VAR_N, functions FUNC_N or class CLASS_N - with probability p - to deobfuscate entirely.
@@ -691,107 +692,101 @@ class Trainer(object):
         replaced by special tokens. ( CLASS_X, FUNC_X and VAR_X)
         y : ylen x bs contains the dictionary of obfuscated tokens, i.e 'CLASS_0 class_name | VAR_0 variable_name .. '
         """
+        # put to negative all the obf_tokens, useful for restoration i.e replacement in string later on
+        dico = self.data["dico"]
+        obf_tokens = (x >= dico.obf_index["CLASS"]) * (
+                x < (dico.obf_index["CLASS"] + dico.n_obf_tokens)
+        )
+        x[obf_tokens] = -x[obf_tokens]
 
-        try:
-            slen, bs = x.size()
-
-            # put to negative all the obf_tokens, useful for restoration i.e replacement in string later on
-            obf_tokens = (x >= self.data["dico"].obf_index["CLASS"]) * (
-                    x < (self.data["dico"].obf_index["CLASS"] + self.data["dico"].n_obf_tokens)
+        # convert sentences to strings and dictionary to a python dictionary (obf_token_special , original_name)
+        x_ = [
+            " ".join(
+                [
+                    str(w)
+                    for w in s
+                    if w not in [self.params.pad_index, self.params.eos_index]
+                ]
             )
-            x[obf_tokens] = -x[obf_tokens]
+            for s in x.transpose(0, 1).tolist()
+        ]
+        y_ = [
+            " ".join(
+                [
+                    str(w)
+                    for w in s
+                    if w not in [self.params.pad_index, self.params.eos_index]
+                ]
+            )
+            for s in y.transpose(0, 1).tolist()
+        ]
 
-            # convert sentences to strings and dictionary to a python dictionary (obf_token_special , original_name)
-            x_ = [
-                " ".join(
+        # filter out sentences without identifiers
+        xy = tuple(zip(*[(xi, yi) for xi, yi in zip(x_, y_) if yi]))
+        x_, y_ = (list(xy[0]), list(xy[1])) if len(xy) == 2 else ([], [])
+
+        if roberta_mode:
+            sep = (
+                f" {dico.word2id['Ġ|']} {dico.word2id['Ġ']} "
+            )
+        else:
+            sep = f" {dico.word2id['|']} "
+        # reversed order to have longer obfuscation first, to make replacement in correct order
+        d = [
+            list(
+                reversed(
                     [
-                        str(w)
-                        for w in s
-                        if w not in [self.params.pad_index, self.params.eos_index]
+                        (
+                            mapping.strip().split()[0],
+                            " ".join(mapping.strip().split()[1:]),
+                        )
+                        for mapping in pred.split(sep)
                     ]
                 )
-                for s in x.transpose(0, 1).tolist()
-            ]
-            y_ = [
-                " ".join(
-                    [
-                        str(w)
-                        for w in s
-                        if w not in [self.params.pad_index, self.params.eos_index]
-                    ]
-                )
-                for s in y.transpose(0, 1).tolist()
-            ]
+            )
+            for pred in y_
+        ]
+
+        # restore x i.e select variable with probability p and restore all occurence of this variable
+        # keep only unrestored variable in dictionary d_
+        x = []
+        y = []
+
+        for i, di in enumerate(d):
+            d_ = []
+            dobf_mask = get_dobf_mask(di, p, obf_type, rng, dico)
+            if dobf_mask is None:
+                continue
+            # shuffle masks
+            random_mapping = get_random_mapping(di, obf_type, rng, dico)
+            for m, (k, v) in enumerate(di):
+                if dobf_mask[m]:
+                    x_[i] = x_[i].replace(f"-{k}", f"{v}")
+                else:
+                    d_.append((random_mapping[k], v))
+                    x_[i] = x_[i].replace(f"-{k}", f"{random_mapping[k]}")
             if roberta_mode:
-                sep = (
-                    f" {self.data['dico'].word2id['Ġ|']} {self.data['dico'].word2id['Ġ']} "
+                # we need to remove the double space introduced during deobfuscation, i.e the "Ġ Ġ"
+                sent_ids = np.array(
+                    [
+                        dico.word2id[index]
+                        for index in (
+                        " ".join(
+                            [
+                                dico.id2word[int(w)]
+                                for w in x_[i].split()
+                            ]
+                        ).replace("Ġ Ġ", "Ġ")
+                    ).split()
+                    ]
                 )
             else:
-                sep = f" {self.data['dico'].word2id['|']} "
-            # reversed order to have longer obfuscation first, to make replacement in correct order
-            d = [
-                list(
-                    reversed(
-                        [
-                            (
-                                mapping.strip().split()[0],
-                                " ".join(mapping.strip().split()[1:]),
-                            )
-                            for mapping in pred.split(sep)
-                        ]
-                    )
-                )
-                for pred in y_
-            ]
-
-            # restore x i.e select variable with probability p and restore all occurence of this variable
-            # keep only unrestored variable in dictionary d_
-            x = []
-            y = []
-
-            for i in range(bs):
-                d_ = []
-                if rng:
-                    dobf_mask = rng.rand(len(d[i])) <= p
-                else:
-                    dobf_mask = np.random.rand(len(d[i])) <= p
-                # make sure at least one variable is picked
-                if sum(dobf_mask) == len(d[i]):
-                    if rng:
-                        dobf_mask[rng.randint(0, len(d[i]))] = False
-                    else:
-                        dobf_mask[np.random.randint(0, len(d[i]))] = False
-                for m, (k, v) in enumerate(d[i]):
-                    if dobf_mask[m]:
-                        x_[i] = x_[i].replace(f"-{k}", f"{v}")
-                    else:
-                        d_.append((k, v))
-                        x_[i] = x_[i].replace(f"-{k}", f"{k}")
-                if roberta_mode:
-                    # we need to remove the double space introduced during deobfuscation, i.e the "Ġ Ġ"
-                    sent_ids = np.array(
-                        [
-                            self.data["dico"].word2id[index]
-                            for index in (
-                            " ".join(
-                                [
-                                    self.data["dico"].id2word[int(w)]
-                                    for w in x_[i].split()
-                                ]
-                            ).replace("Ġ Ġ", "Ġ")
-                        ).split()
-                        ]
-                    )
-                else:
-                    sent_ids = np.array([int(id) for id in x_[i].split()])
-                if len(sent_ids) < self.params.max_len:
-                    x.append(sent_ids)
-                    d_ids = sep.join([" ".join([k, v]) for k, v in reversed(d_)])
-                    d_ids = np.array([int(id) for id in d_ids.split()])
-                    y.append(d_ids)
-        except Exception:
-            logger.error("Cannot deobfuscate batch.")
-            return None, None, None, None
+                sent_ids = np.array([int(id) for id in x_[i].split()])
+            if len(sent_ids) < self.params.max_len:
+                x.append(sent_ids)
+                d_ids = sep.join([" ".join([k, v]) for k, v in reversed(d_)])
+                d_ids = np.array([int(id) for id in d_ids.split()])
+                y.append(d_ids)
 
         if len(x) == 0:
             return None, None, None, None
@@ -801,7 +796,7 @@ class Trainer(object):
 
         assert sum(sum((x < 0).float())) == 0
 
-        return (x, len_x, y, len_y)
+        return x, len_x, y, len_y
 
     def generate_batch(self, lang1, lang2, name):
         """
