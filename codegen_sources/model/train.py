@@ -11,6 +11,8 @@ import os
 import random
 
 import wandb
+from torch.distributed.elastic.multiprocessing.errors import record
+
 from src.data.loader import check_data_params, load_data
 from src.evaluation.evaluator import SingleEvaluator, EncDecEvaluator
 from src.model import check_model_params, build_model, build_classifier
@@ -729,6 +731,7 @@ def get_parser():
     return parser
 
 
+@record
 def main(params):
     # initialize the multi-GPU / multi-node training
     init_distributed_mode(params)
