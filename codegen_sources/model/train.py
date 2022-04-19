@@ -12,6 +12,7 @@ import random
 
 from torch.distributed.elastic.multiprocessing.errors import record
 
+import wandb
 from src.data.loader import check_data_params, load_data
 from src.evaluation.evaluator import SingleEvaluator, EncDecEvaluator
 from src.model import check_model_params, build_model, build_classifier
@@ -891,6 +892,9 @@ if __name__ == "__main__":
     params = parser.parse_args()
     # torchrun support
     params.local_rank = int(os.environ.get('LOCAL_RANK', params.local_rank)) + int(params.min_local_rank)
+    # initialize wandb
+    wandb.init(project=f"CodeGen-{params.exp_name}{'-distillation' if params.distillation else ''}",
+               config=vars(params))
 
     # debug mode
     if params.debug:
