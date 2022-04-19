@@ -10,8 +10,6 @@ import json
 import os
 import random
 
-from torch.distributed.elastic.multiprocessing.errors import record
-
 import wandb
 from src.data.loader import check_data_params, load_data
 from src.evaluation.evaluator import SingleEvaluator, EncDecEvaluator
@@ -731,7 +729,6 @@ def get_parser():
     return parser
 
 
-@record
 def main(params):
     # initialize the multi-GPU / multi-node training
     init_distributed_mode(params)
