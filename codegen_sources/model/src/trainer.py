@@ -188,6 +188,7 @@ class Trainer(object):
                 for l1, l2, span in params.mt_spans_steps
             ]
             + [("DO-%s-%s" % (l1, l2), []) for l1, l2 in params.do_steps]
+            + [("BPE-acc-%s-%s" % (l1, l2), []) for l1, l2 in params.do_steps]
             + [("Classif-%s-%s" % (l1, l2), []) for l1, l2 in params.classif_steps]
             + [("BT-%s-%s-%s" % (l1, l2, l3), []) for l1, l2, l3 in params.bt_steps]
             + [
@@ -1348,16 +1349,19 @@ class EncDecTrainer(Trainer):
         )
 
         # loss
-        _, loss = decoder(
-            "predict", tensor=dec2, pred_mask=pred_mask, y=y, get_scores=False
+        scores, loss = decoder(
+            "predict", tensor=dec2, pred_mask=pred_mask, y=y, get_scores=True
         )
 
         if deobfuscate:
-            self.stats[("DO-%s-%s" % (lang1, lang2))].append(loss.item())
+            self.stats[(f"DO-{lang1}-{lang2}")].append(loss.item())
+            n_words = y.size(0)
+            n_valid = (scores.max(1)[1] == y).sum().item()
+            self.stats[f"BPE-acc-{lang1}-{lang2}"].append(n_valid / n_words)
         else:
             key = (lang1, lang2) if span is None else (lang1, lang2, span)
             self.stats[
-                ("AE-%s" % lang1) if lang1 == lang2 else ("MT-%s" % "-".join(key))
+                (f"AE-{lang1}") if lang1 == lang2 else ("MT-%s" % "-".join(key))
             ].append(loss.item())
         loss = lambda_coeff * loss
 
