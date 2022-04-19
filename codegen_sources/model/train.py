@@ -10,7 +10,6 @@ import json
 import os
 import random
 
-import wandb
 from torch.distributed.elastic.multiprocessing.errors import record
 
 from src.data.loader import check_data_params, load_data
@@ -728,6 +727,11 @@ def get_parser():
         "--lambda_cos", type=float, default=1, help="Distillation coefficient for hidden states cosine similarity"
     )
 
+    # wandb
+    parser.add_argument(
+        "--wandb", type=bool_flag, default=False, help="Use wandb to log metrics"
+    )
+
     return parser
 
 
@@ -892,9 +896,12 @@ if __name__ == "__main__":
     params = parser.parse_args()
     # torchrun support
     params.local_rank = int(os.environ.get('LOCAL_RANK', params.local_rank)) + int(params.min_local_rank)
-    # initialize wandb
-    wandb.init(project=f"CodeGen-{params.exp_name}{'-distillation' if params.distillation else ''}",
-               config=vars(params))
+    if params.wandb:
+        import wandb
+
+        # initialize wandb
+        wandb.init(project=f"CodeGen-{params.exp_name}{'-distillation' if params.distillation else ''}",
+                   config=vars(params))
 
     # debug mode
     if params.debug:
