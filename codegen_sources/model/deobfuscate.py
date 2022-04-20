@@ -7,6 +7,7 @@
 
 import os
 import argparse
+import sys
 import time
 from pathlib import Path
 import torch
@@ -234,7 +235,7 @@ if __name__ == "__main__":
     deobfuscator = Deobfuscator(params.model_path, params.BPE_path)
 
     # read input code from stdin
-    input = read_file("/home/igor/PycharmProjects/CodeGen/examples/example.java")
+    input = sys.stdin.read().strip()
 
     with torch.no_grad():
         output = deobfuscator.deobfuscate(
