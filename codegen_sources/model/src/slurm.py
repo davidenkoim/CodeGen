@@ -10,6 +10,7 @@ import signal
 import socket
 import subprocess
 import sys
+from datetime import timedelta
 from logging import getLogger
 
 import torch
@@ -174,5 +175,5 @@ def init_distributed_mode(params):
 
         print("Initializing PyTorch distributed ...")
         torch.distributed.init_process_group(
-            init_method="env://", backend="nccl",
+            init_method="env://", backend="nccl", timeout=timedelta(hours=2)
         )
