@@ -138,7 +138,7 @@ class Deobfuscator:
         print("Original Code:")
         print(input)
 
-        input = obfuscator(input)[0]
+        input, dico = obfuscator(input)
         print("Obfuscated Code:")
         print(input)
 
@@ -212,7 +212,7 @@ class Deobfuscator:
             for t in tok:
                 results.append(t)
             print(f"Time DOBF: {time.perf_counter() - start}s")
-            return results
+            return results, dico
 
 
 if __name__ == "__main__":
@@ -238,9 +238,11 @@ if __name__ == "__main__":
     input = sys.stdin.read().strip()
 
     with torch.no_grad():
-        output = deobfuscator.deobfuscate(
+        output, dico = deobfuscator.deobfuscate(
             input, lang=params.lang, beam_size=params.beam_size,
         )
+
+    print(" | ".join(f"{k} {v}" for k, v in dico.items()))
 
     for out in output:
         print("=" * 20)
