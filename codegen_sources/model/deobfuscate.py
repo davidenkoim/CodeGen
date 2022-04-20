@@ -242,7 +242,8 @@ if __name__ == "__main__":
             input, lang=params.lang, beam_size=params.beam_size,
         )
 
-    print(" | ".join(f"{k} {v}" for k, v in dico.items()))
+    print("True names:")
+    print(dico)
 
     for out in output:
         print("=" * 20)
