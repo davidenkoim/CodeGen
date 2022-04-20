@@ -813,7 +813,9 @@ class EncDecEvaluator(Evaluator):
                         (x1, len1, ids1, len_ids1), (x2, len2, ids2, len_ids2) = batch
                         if deobfuscate:
                             (x1, len1, x2, len2) = self.trainer.deobfuscate_by_variable(
-                                x1, x2, deobfuscation_proba, params.roberta_mode, rng, obf_type=params.obf_type
+                                x1, x2, deobfuscation_proba, params.roberta_mode, rng,
+                                obf_type=params.obf_type,
+                                shuffle_masks=params.shuffle_dobf_masks
                             )
                             if x1 is None:
                                 continue

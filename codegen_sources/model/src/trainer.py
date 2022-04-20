@@ -691,7 +691,7 @@ class Trainer(object):
 
         return (x_b, lengths)
 
-    def deobfuscate_by_variable(self, x, y, p, roberta_mode, rng=None, obf_type="all"):
+    def deobfuscate_by_variable(self, x, y, p, roberta_mode, rng=None, obf_type="all", shuffle_masks=True):
         """
         Deobfuscate class, function and variable name with probability p, by variable blocked.
         We chose some variables VAR_N, functions FUNC_N or class CLASS_N - with probability p - to deobfuscate entirely.
@@ -766,7 +766,7 @@ class Trainer(object):
             if dobf_mask is None:
                 continue
             # shuffle masks
-            random_mapping = get_random_mapping(di, obf_type, rng, dico)
+            random_mapping = get_random_mapping(di, obf_type, rng, dico) if shuffle_masks else {k: k for k, _ in di}
             for m, (k, v) in enumerate(di):
                 if dobf_mask[m]:
                     x_[i] = x_[i].replace(f"-{k}", f"{v}")
@@ -1301,7 +1301,9 @@ class EncDecTrainer(Trainer):
         elif deobfuscate:
             (x1, len1, _, _), (x2, len2, _, _) = self.get_batch("mt", lang1, lang2)
             (x1, len1, x2, len2) = self.deobfuscate_by_variable(
-                x1, x2, deobfuscate_p, params.roberta_mode, rng=None, obf_type=params.obf_type
+                x1, x2, deobfuscate_p, params.roberta_mode, rng=None,
+                obf_type=params.obf_type,
+                shuffle_masks=params.shuffle_dobf_masks
             )
             if x1 is None:
                 return

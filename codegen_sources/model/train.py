@@ -729,6 +729,14 @@ def get_parser():
         "--wandb", type=bool_flag, default=False, help="Use wandb to log metrics"
     )
 
+    # shuffling
+    parser.add_argument(
+        "--shuffle_dobf_masks",
+        type=bool_flag,
+        default=True,
+        help="Shuffle dobf masks",
+    )
+
     return parser
 
 
