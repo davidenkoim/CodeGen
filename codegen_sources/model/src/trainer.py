@@ -1301,7 +1301,7 @@ class EncDecTrainer(Trainer):
         elif deobfuscate:
             (x1, len1, _, _), (x2, len2, _, _) = self.get_batch("mt", lang1, lang2)
             (x1, len1, x2, len2) = self.deobfuscate_by_variable(
-                x1, x2, deobfuscate_p, params.roberta_mode, rng=None
+                x1, x2, deobfuscate_p, params.roberta_mode, rng=None, obf_type=params.obf_type
             )
             if x1 is None:
                 return
