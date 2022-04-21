@@ -113,16 +113,6 @@ class DistillationTrainer(EncDecTrainer):
         else:
             (x1, len1, _, _), (x2, len2, _, _) = self.get_batch("mt", lang1, lang2)
 
-        # log first batch of training
-        if show_example:
-            show_batch(
-                logger,
-                [("source", x1.transpose(0, 1)), ("target", x2.transpose(0, 1))],
-                self.data["dico"],
-                self.params.roberta_mode,
-                f"Train {lang1}-{lang2}",
-            )
-
         langs1 = x1.clone().fill_(lang1_id)
         langs2 = x2.clone().fill_(lang2_id)
 
@@ -147,6 +137,27 @@ class DistillationTrainer(EncDecTrainer):
         with torch.no_grad():
             _, t_dec, t_scores, t_loss = self.model_forward(teacher_encoder, teacher_decoder,
                                                             langs1, langs2, len1, len2, pred_mask, spans, x1, x2, y)
+
+        # log first batch of training
+        if show_example:
+            idxs = scores.max(1)[1]
+            pred_bpe = torch.empty_like(x2).fill_(params.pad_index)
+            pred_bpe[pred_mask] = idxs
+            t_idxs = t_scores.max(1)[1]
+            t_pred_bpe = torch.empty_like(x2).fill_(params.pad_index)
+            t_pred_bpe[pred_mask] = t_idxs
+            show_batch(
+                logger,
+                [
+                    ("source", x1.transpose(0, 1)),
+                    ("target", x2.transpose(0, 1)),
+                    ("next bpe", pred_bpe.transpose(0, 1)),
+                    ("teacher next bpe", t_pred_bpe.transpose(0, 1))
+                ],
+                self.data["dico"],
+                self.params.roberta_mode,
+                f"Train {lang1}-{lang2}",
+            )
 
         kld_loss = self.kld_loss_fct(F.log_softmax(scores / self.temperature_kld, dim=-1),
                                      F.softmax(t_scores / self.temperature_kld, -1)) * self.temperature_kld ** 2
