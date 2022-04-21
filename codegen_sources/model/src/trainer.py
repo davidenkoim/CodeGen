@@ -1350,12 +1350,15 @@ class EncDecTrainer(Trainer):
 
         # log first batch of training
         if show_example:
+            idxs = scores.max(1)[1]
+            pred_bpe = torch.empty_like(x2).fill_(params.pad_index)
+            pred_bpe[pred_mask] = idxs
             show_batch(
                 logger,
                 [
                     ("source", x1.transpose(0, 1)),
                     ("target", x2.transpose(0, 1)),
-                    ("next bpe", scores.max(1)[1].transpose(0, 1))
+                    ("next bpe", pred_bpe.transpose(0, 1))
                 ],
                 self.data["dico"],
                 self.params.roberta_mode,
