@@ -1310,16 +1310,6 @@ class EncDecTrainer(Trainer):
         else:
             (x1, len1, _, _), (x2, len2, _, _) = self.get_batch("mt", lang1, lang2)
 
-        # log first batch of training
-        if show_example:
-            show_batch(
-                logger,
-                [("source", x1.transpose(0, 1)), ("target", x2.transpose(0, 1))],
-                self.data["dico"],
-                self.params.roberta_mode,
-                f"Train {lang1}-{lang2}",
-            )
-
         langs1 = x1.clone().fill_(lang1_id)
         langs2 = x2.clone().fill_(lang2_id)
 
@@ -1358,15 +1348,29 @@ class EncDecTrainer(Trainer):
             "predict", tensor=dec2, pred_mask=pred_mask, y=y, get_scores=True
         )
 
+        # log first batch of training
+        if show_example:
+            show_batch(
+                logger,
+                [
+                    ("source", x1.transpose(0, 1)),
+                    ("target", x2.transpose(0, 1)),
+                    ("next bpe", scores.max(1)[1].transpose(0, 1))
+                ],
+                self.data["dico"],
+                self.params.roberta_mode,
+                f"Train {lang1}-{lang2}",
+            )
+
         if deobfuscate:
-            self.stats[(f"DO-{lang1}-{lang2}")].append(loss.item())
+            self.stats[f"DO-{lang1}-{lang2}"].append(loss.item())
             n_words = y.size(0)
             n_valid = (scores.max(1)[1] == y).sum().item()
             self.stats[f"BPE-acc-{lang1}-{lang2}"].append(n_valid / n_words)
         else:
             key = (lang1, lang2) if span is None else (lang1, lang2, span)
             self.stats[
-                (f"AE-{lang1}") if lang1 == lang2 else ("MT-%s" % "-".join(key))
+                f"AE-{lang1}" if lang1 == lang2 else f"MT-{'-'.join(key)}"
             ].append(loss.item())
         loss = lambda_coeff * loss
 
