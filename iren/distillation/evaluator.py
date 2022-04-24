@@ -419,7 +419,7 @@ class DistillationEvaluator(EncDecEvaluator):
                 ],
                 self.data["dico"],
                 self.params.roberta_mode,
-                f"{data_set} {lang1}-{lang2} {'teacher' if is_teacher else ''}",
+                f"{data_set} {lang1}-{lang2}{' teacher' if is_teacher else ''}",
             )
         return generated, lengths
 
