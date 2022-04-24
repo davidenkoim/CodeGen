@@ -175,7 +175,7 @@ class DistillationTrainer(EncDecTrainer):
         self.stats_append(f"KLD-{lang1}-{lang2}", kld_loss.item())
 
         if self.lambda_mse > 0:
-            mse_loss = self.mse_loss_fct(scores, t_scores) / x1.size(1)  # batchmean
+            mse_loss = self.mse_loss_fct(scores, t_scores) / x1.size(0)  # batchmean
             self.stats_append(f"MSE-{lang1}-{lang2}", mse_loss.item())
             loss_sum += self.lambda_mse * mse_loss
         if self.lambda_cos > 0 and dec.size() == t_dec.size():
