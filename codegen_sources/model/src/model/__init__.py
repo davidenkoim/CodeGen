@@ -432,20 +432,21 @@ def reload_lang_embeddings(reloaded, params, model_type):
             )
         indices.append(index[0])
 
-    first_line = model_reloaded["lang_embeddings.weight"][0:1]
-    embedding_size = model_reloaded["lang_embeddings.weight"].shape[1]
-    model_reloaded["lang_embeddings.weight"] = torch.cat(
-        [
-            model_reloaded["lang_embeddings.weight"][index : index + 1]
-            if index is not None
-            else torch.normal(
-                torch.zeros_like(first_line),
-                torch.ones_like(first_line * (embedding_size ** (-0.5))),
-            )
-            for index in indices
-        ],
-        dim=0,
-    )
+    if "lang_embeddings.weight" in model_reloaded:
+        first_line = model_reloaded["lang_embeddings.weight"][0:1]
+        embedding_size = model_reloaded["lang_embeddings.weight"].shape[1]
+        model_reloaded["lang_embeddings.weight"] = torch.cat(
+            [
+                model_reloaded["lang_embeddings.weight"][index : index + 1]
+                if index is not None
+                else torch.normal(
+                    torch.zeros_like(first_line),
+                    torch.ones_like(first_line * (embedding_size ** (-0.5))),
+                )
+                for index in indices
+            ],
+            dim=0,
+        )
     reloaded[model_type] = model_reloaded
 
 
