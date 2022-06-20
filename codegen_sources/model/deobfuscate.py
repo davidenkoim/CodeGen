@@ -144,52 +144,41 @@ class Deobfuscator:
             )[:, None]
             langs1 = x1.clone().fill_(lang1_id)
 
-            # ONNX inference (hardcoded)
+            # ONNX greedy inference (hardcoded, as in the IRen)
             encoder = ONNXModel(self.dico,
                                 "/home/igor/PycharmProjects/CodeGen/training_artifacts/onnx_models_old/encoder.opt.onnx")
             decoder = ONNXModel(self.dico,
                                 "/home/igor/PycharmProjects/CodeGen/training_artifacts/onnx_models_old/decoder.opt.onnx")
 
-            # x1 tensor([[1],
-            #            [772],
-            #            [581],
-            #            [517],
-            #            [2212],
-            #            [517],
-            #            [5057],
-            #            [519],
-            #            [553],
-            #            [645],
-            #            ...
-            #            [519],
-            #            [528],
-            #            [528],
-            #            [528],
-            #            [1]])
-            # len1 tensor([364])
-            enc1 = encoder(x=x1, lengths=len1)
-            # enc1 tensor([[[-1.2224, 0.4027, 0.4593, ..., 0.3197, 0.6488, 0.9330],
-            #             [-1.2356, 0.4677, 0.4793, ..., 0.2686, 0.7487, 0.8674],
-            #             [-1.3957, 0.4289, 0.4853, ..., 0.1434, 0.2772, -0.2484],
-            #             ...,
-            #             [-0.3108, 0.7761, 0.3697, ..., 1.2685, -1.2228, -0.1318],
-            #             [-0.3755, 0.8178, 0.3500, ..., 1.3115, -1.1837, -0.2205],
-            #             [-0.6207, 0.3150, 0.6154, ..., 0.3038, 0.4711, 1.0550]]])
-            x2 = torch.ones((1, 1), dtype=torch.int64)
-            # tensor([[1],
-            #         [324],
-            #         [1055]])
-            len2 = torch.ones((1,), dtype=torch.int64)
-            # tensor([3])
-            langs2 = x2.clone().fill_(lang2_id)
+            # B=1 - batch size, S - source length, T - target length, E=256 - embeddings size, V=64000 - vocabulary size
+            # x1 shape: [S, B], len1 shape: [B]
+            bos_index = eos_index = 1  # It's not a bug, DOBF is trained like this
+            enc1 = encoder(x=x1, lengths=len1)  # Shape: [B, S, E]
+            x2 = torch.full(size=(1, 1), fill_value=bos_index, dtype=torch.int64)  # Shape: [T, B]
+            len2 = torch.ones((1,), dtype=torch.int64)  # Shape: [B]
             for _ in range(10):
-                out = decoder(x=x2, lengths=len2, src_enc=enc1, src_len=len1)
-                out_idx = out.argmax(1, keepdim=True)
-                if out_idx == 1: break
-                x2 = torch.cat((x2, out_idx), 0)
-                langs2 = x2.clone().fill_(lang2_id)
+                out = decoder(x=x2, lengths=len2, src_enc=enc1, src_len=len1)  # Shape: [B, V]
+                out_idx = out.argmax(1, keepdim=True)  # Shape: [B, 1]
+                if out_idx == eos_index: break
+                x2 = torch.cat((x2, out_idx.T), 0)  # Shape: [T + 1, B]
                 len2 += 1
 
+            # Convert out ids to text
+            tok = []
+            for i in range(x2.shape[1]):
+                wid = [self.dico[x2[j, i].item()] for j in range(len(x2))][1:]
+                wid = wid[: wid.index(EOS_WORD)] if EOS_WORD in wid else wid
+                if getattr(self.reloaded_params, "roberta_mode", False):
+                    tok.append(restore_roberta_segmentation_sentence(" ".join(wid)))
+                else:
+                    tok.append(" ".join(wid).replace("@@ ", ""))
+            results = []
+            for t in tok:
+                results.append(t)
+            print(f"Time DOBF: {time.perf_counter() - start}s")
+            return results, dico
+
+            # Inference part
             # encoder = EncoderToONNX(self.encoder)
             # decoder = DecoderToONNX(self.decoder)
             #
@@ -235,21 +224,6 @@ class Deobfuscator:
             #         length_penalty=1.0,
             #         beam_size=beam_size,
             #     )
-
-            # Convert out ids to text
-            tok = []
-            for i in range(x2.shape[1]):
-                wid = [self.dico[x2[j, i].item()] for j in range(len(x2))][1:]
-                wid = wid[: wid.index(EOS_WORD)] if EOS_WORD in wid else wid
-                if getattr(self.reloaded_params, "roberta_mode", False):
-                    tok.append(restore_roberta_segmentation_sentence(" ".join(wid)))
-                else:
-                    tok.append(" ".join(wid).replace("@@ ", ""))
-            results = []
-            for t in tok:
-                results.append(t)
-            print(f"Time DOBF: {time.perf_counter() - start}s")
-            return results, dico
 
 
 def _reload_model(model_path, gpu=False):
