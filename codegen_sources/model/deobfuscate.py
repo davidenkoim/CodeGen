@@ -7,17 +7,10 @@
 
 import os
 import argparse
-import sys
 import time
 from pathlib import Path
 import torch
 from codegen_sources.model.src.logger import create_logger
-from iren.dataset_builder.source_obfuscation_mode import read_file
-from codegen_sources.preprocessing.lang_processors.cpp_processor import CppProcessor
-from codegen_sources.preprocessing.lang_processors.java_processor import JavaProcessor
-from codegen_sources.preprocessing.lang_processors.python_processor import (
-    PythonProcessor,
-)
 from codegen_sources.model.src.utils import restore_roberta_segmentation_sentence
 from codegen_sources.preprocessing.bpe_modes.fast_bpe_mode import FastBPEMode
 from codegen_sources.preprocessing.bpe_modes.roberta_bpe_mode import RobertaBPEMode
@@ -32,6 +25,8 @@ from codegen_sources.model.src.data.dictionary import (
 )
 from codegen_sources.model.src.model import build_model
 from codegen_sources.model.src.utils import AttrDict
+from iren.dataset_builder.source_dataset_mode import read_file
+from iren.onnx import ONNXModel
 
 SUPPORTED_LANGUAGES = ["java", "python"]
 
@@ -73,32 +68,11 @@ def get_parser():
 
 class Deobfuscator:
     def __init__(self, model_path, BPE_path):
-        # reload model
-        reloaded = torch.load(model_path, map_location="cpu")
-        # change params of the reloaded model so that it will
-        # relaod its own weights and not the MLM or DOBF pretrained model
-        reloaded["params"]["reload_model"] = ",".join([model_path] * 2)
-        reloaded["params"]["lgs_mapping"] = ""
-        reloaded["params"]["reload_encoder_for_decoder"] = False
-        self.reloaded_params = AttrDict(reloaded["params"])
-
-        # build dictionary / update parameters
-        self.dico = Dictionary(
-            reloaded["dico_id2word"], reloaded["dico_word2id"], reloaded["dico_counts"]
-        )
-        assert self.reloaded_params.n_words == len(self.dico)
-        assert self.reloaded_params.bos_index == self.dico.index(BOS_WORD)
-        assert self.reloaded_params.eos_index == self.dico.index(EOS_WORD)
-        assert self.reloaded_params.pad_index == self.dico.index(PAD_WORD)
-        assert self.reloaded_params.unk_index == self.dico.index(UNK_WORD)
-        assert self.reloaded_params.mask_index == self.dico.index(MASK_WORD)
-
-        # build model / reload weights (in the build_model method)
-        encoder, decoder = build_model(self.reloaded_params, self.dico)
+        self.reloaded_params, self.dico, (encoder, decoder) = _reload_model(model_path, gpu=False)
         self.encoder = encoder[0]
         self.decoder = decoder[0]
-        self.encoder.cuda()
-        self.decoder.cuda()
+        print("Encoder:", self.encoder.parameters)
+        print("Decoder:", self.decoder.parameters)
         self.encoder.eval()
         self.decoder.eval()
 
@@ -111,7 +85,7 @@ class Deobfuscator:
             )
 
     def deobfuscate(
-        self, input, lang, n=1, beam_size=1, sample_temperature=None, device="cuda:0",
+            self, input, lang, n=1, beam_size=1, sample_temperature=None, device="cpu",
     ):
 
         # Build language processors
@@ -129,18 +103,19 @@ class Deobfuscator:
         lang2_id = self.reloaded_params.lang2id[lang2]
 
         assert (
-            lang1 in self.reloaded_params.lang2id.keys()
+                lang1 in self.reloaded_params.lang2id.keys()
         ), f"{lang1} should be in {self.reloaded_params.lang2id.keys()}"
         assert (
-            lang2 in self.reloaded_params.lang2id.keys()
+                lang2 in self.reloaded_params.lang2id.keys()
         ), f"{lang2} should be in {self.reloaded_params.lang2id.keys()}"
 
         print("Original Code:")
         print(input)
 
-        input, dico = obfuscator(input)
-        print("Obfuscated Code:")
-        print(input)
+        dico = None
+        # input, dico = obfuscator(input)
+        # print("Obfuscated Code:")
+        # print(input)
 
         with torch.no_grad():
             # Convert source code to ids
@@ -158,6 +133,7 @@ class Deobfuscator:
 
             start = time.perf_counter()
             tokens = ["</s>"] + tokens.split() + ["</s>"]
+            # tokens = tokens.split()
             input = " ".join(tokens)
 
             # Create torch batch
@@ -168,36 +144,97 @@ class Deobfuscator:
             )[:, None]
             langs1 = x1.clone().fill_(lang1_id)
 
-            # Encode
-            enc1 = self.encoder("fwd", x=x1, lengths=len1, langs=langs1, causal=False)
-            enc1 = enc1.transpose(0, 1)
-            if n > 1:
-                enc1 = enc1.repeat(n, 1, 1)
-                len1 = len1.expand(n)
+            # ONNX inference (hardcoded)
+            encoder = ONNXModel(self.dico,
+                                "/home/igor/PycharmProjects/CodeGen/training_artifacts/onnx_models_old/encoder.opt.onnx")
+            decoder = ONNXModel(self.dico,
+                                "/home/igor/PycharmProjects/CodeGen/training_artifacts/onnx_models_old/decoder.opt.onnx")
 
-            # Decode
-            if beam_size == 1:
-                x2, len2 = self.decoder.generate(
-                    enc1,
-                    len1,
-                    lang2_id,
-                    max_len=int(
-                        min(self.reloaded_params.max_len, 3 * len1.max().item() + 10)
-                    ),
-                    sample_temperature=sample_temperature,
-                )
-            else:
-                x2, len2, _ = self.decoder.generate_beam(
-                    enc1,
-                    len1,
-                    lang2_id,
-                    max_len=int(
-                        min(self.reloaded_params.max_len, 3 * len1.max().item() + 10)
-                    ),
-                    early_stopping=True,
-                    length_penalty=1.0,
-                    beam_size=beam_size,
-                )
+            # x1 tensor([[1],
+            #            [772],
+            #            [581],
+            #            [517],
+            #            [2212],
+            #            [517],
+            #            [5057],
+            #            [519],
+            #            [553],
+            #            [645],
+            #            ...
+            #            [519],
+            #            [528],
+            #            [528],
+            #            [528],
+            #            [1]])
+            # len1 tensor([364])
+            enc1 = encoder(x=x1, lengths=len1)
+            # enc1 tensor([[[-1.2224, 0.4027, 0.4593, ..., 0.3197, 0.6488, 0.9330],
+            #             [-1.2356, 0.4677, 0.4793, ..., 0.2686, 0.7487, 0.8674],
+            #             [-1.3957, 0.4289, 0.4853, ..., 0.1434, 0.2772, -0.2484],
+            #             ...,
+            #             [-0.3108, 0.7761, 0.3697, ..., 1.2685, -1.2228, -0.1318],
+            #             [-0.3755, 0.8178, 0.3500, ..., 1.3115, -1.1837, -0.2205],
+            #             [-0.6207, 0.3150, 0.6154, ..., 0.3038, 0.4711, 1.0550]]])
+            x2 = torch.ones((1, 1), dtype=torch.int64)
+            # tensor([[1],
+            #         [324],
+            #         [1055]])
+            len2 = torch.ones((1,), dtype=torch.int64)
+            # tensor([3])
+            langs2 = x2.clone().fill_(lang2_id)
+            for _ in range(10):
+                out = decoder(x=x2, lengths=len2, src_enc=enc1, src_len=len1)
+                out_idx = out.argmax(1, keepdim=True)
+                if out_idx == 1: break
+                x2 = torch.cat((x2, out_idx), 0)
+                langs2 = x2.clone().fill_(lang2_id)
+                len2 += 1
+
+            # encoder = EncoderToONNX(self.encoder)
+            # decoder = DecoderToONNX(self.decoder)
+            #
+            # enc1 = encoder(x1, len1, langs=None)
+            # x2 = torch.ones((1, 1), dtype=torch.int64)
+            # len2 = torch.ones((1,), dtype=torch.int64)
+            # langs2 = x2.clone().fill_(lang2_id)
+            # for _ in range(10):
+            #     out = decoder(x2, len2, langs=None, src_enc=enc1, src_len=len1)
+            #     out_idx = out.argmax(1, keepdim=True)
+            #     if out_idx == 1: break
+            #     x2 = torch.cat((x2, out_idx), 0)
+            #     langs2 = x2.clone().fill_(lang2_id)
+            #     len2 += 1
+
+            # # Encode
+            # enc1 = self.encoder("fwd", x=x1, lengths=len1, langs=langs1, causal=False)
+            # enc1 = enc1.transpose(0, 1)
+            # if n > 1:
+            #     enc1 = enc1.repeat(n, 1, 1)
+            #     len1 = len1.expand(n)
+            #
+            # # Decode
+            # if beam_size == 1:
+            #     x2, len2 = self.decoder.generate(
+            #         enc1,
+            #         len1,
+            #         lang2_id,
+            #         max_len=int(
+            #             min(self.reloaded_params.max_len, 3 * len1.max().item() + 10)
+            #         ),
+            #         sample_temperature=sample_temperature,
+            #     )
+            # else:
+            #     x2, len2, _ = self.decoder.generate_beam(
+            #         enc1,
+            #         len1,
+            #         lang2_id,
+            #         max_len=int(
+            #             min(self.reloaded_params.max_len, 3 * len1.max().item() + 10)
+            #         ),
+            #         early_stopping=True,
+            #         length_penalty=1.0,
+            #         beam_size=beam_size,
+            #     )
 
             # Convert out ids to text
             tok = []
@@ -215,6 +252,31 @@ class Deobfuscator:
             return results, dico
 
 
+def _reload_model(model_path, gpu=False):
+    # reload model
+    reloaded = torch.load(model_path, map_location="cpu")
+    # change params of the reloaded model so that it will
+    # relaod its own weights and not the MLM or DOBF pretrained model
+    reloaded["params"]["reload_model"] = ",".join([model_path] * 2)
+    reloaded["params"]["lgs_mapping"] = ""
+    reloaded["params"]["reload_encoder_for_decoder"] = False
+    reloaded_params = AttrDict(reloaded["params"])
+
+    # build dictionary / update parameters
+    dico = Dictionary(
+        reloaded["dico_id2word"], reloaded["dico_word2id"], reloaded["dico_counts"]
+    )
+    assert reloaded_params.n_words == len(dico)
+    assert reloaded_params.bos_index == dico.index(BOS_WORD)
+    assert reloaded_params.eos_index == dico.index(EOS_WORD)
+    assert reloaded_params.pad_index == dico.index(PAD_WORD)
+    assert reloaded_params.unk_index == dico.index(UNK_WORD)
+    assert reloaded_params.mask_index == dico.index(MASK_WORD)
+
+    # build model / reload weights (in the build_model method)
+    return reloaded_params, dico, build_model(reloaded_params, dico, gpu)
+
+
 if __name__ == "__main__":
     # generate parser / parse parameters
     parser = get_parser()
@@ -228,14 +290,16 @@ if __name__ == "__main__":
         params.BPE_path
     ), f"The path to the BPE tokens is incorrect: {params.BPE_path}"
     assert (
-        params.lang in SUPPORTED_LANGUAGES
+            params.lang in SUPPORTED_LANGUAGES
     ), f"The source language should be in {SUPPORTED_LANGUAGES}."
 
     # Initialize translator
     deobfuscator = Deobfuscator(params.model_path, params.BPE_path)
 
     # read input code from stdin
-    input = sys.stdin.read().strip()
+    # input = read_file(f"/home/igor/PycharmProjects/CodeGen/examples/example{LANGUAGE_EXTENSIONS[params.lang]}")
+    input = read_file(
+        "/home/igor/IdeaProjects/spring-boot/spring-boot-project/spring-boot/src/main/java/org/springframework/boot/DefaultApplicationArguments.java")
 
     with torch.no_grad():
         output, dico = deobfuscator.deobfuscate(
