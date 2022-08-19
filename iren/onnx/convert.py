@@ -3,7 +3,8 @@ import os.path
 import numpy as np
 import onnxruntime as rt
 import torch
-from onnxruntime.quantization import quantize_dynamic
+from onnxruntime.transformers.gpt2_helper import Gpt2Helper
+from onnxruntime.transformers.quantize_helper import QuantizeHelper
 from torch import nn
 
 from codegen_sources.model.src.data.dictionary import Dictionary
@@ -12,12 +13,11 @@ from codegen_sources.model.src.utils import AttrDict
 # TODO: use hydra
 from iren.hf_transformer import HFTransformer
 from iren.onnx import to_numpy
-from iren.transformer import Transformer
 
 MODEL_PATH = "/home/igor/PycharmProjects/CodeGen/training_artifacts/models/distill_var_shuffled_F1_66.pth"
-OLD = False
-OUTPUT_DIR = "/home/igor/PycharmProjects/CodeGen/training_artifacts/onnx_models"
-OPSET_VERSION = 13
+OLD = True
+OUTPUT_DIR = "/home/igor/PycharmProjects/CodeGen/training_artifacts/onnx_models" + ("_old_1" if OLD else "")
+OPSET_VERSION = 11
 
 
 def gen_random_batch(batch_size=5):
@@ -27,6 +27,9 @@ def gen_random_batch(batch_size=5):
     x2 = torch.randint(64000, size=(10, batch_size))
     len2 = torch.randint(x2.size(0), size=(batch_size,))
     langs2 = torch.ones_like(x2)
+    if OLD:
+        x1 = x1.transpose(0, 1)
+        x2 = x2.transpose(0, 1)
     return x1, len1, langs1, x2, len2, langs2
 
 
@@ -77,6 +80,7 @@ class EncoderToONNX(nn.Module):
         self.encoder = encoder
 
     def forward(self, x, lengths, langs=None):
+        x = x.transpose(0, 1)
         out = self.encoder('fwd', x=x, lengths=lengths, langs=langs, causal=False)
         return out.transpose(0, 1)
 
@@ -90,6 +94,7 @@ class DecoderToONNX(nn.Module):
         """
         :return: the last logit for each sentence.
         """
+        x = x.transpose(0, 1)
         dec2 = self.decoder(
             "fwd",
             x=x,
@@ -103,7 +108,8 @@ class DecoderToONNX(nn.Module):
         # dec_flat = dec2.reshape(-1, dec2.size(-1))
         # batch_size = lengths.size(0)
         # idxs = (lengths - 1) * batch_size + torch.arange(batch_size)
-        return self.decoder.pred_layer.get_scores(dec2[-1, :, :])  # (B, V)
+        # (B, V)
+        return self.decoder.pred_layer.get_scores(dec2[-1, :, :])
 
 
 def save_dico(dico):
@@ -143,21 +149,21 @@ if __name__ == "__main__":
                       opset_version=OPSET_VERSION,
                       input_names=['x', 'lengths'],
                       output_names=['output'],
-                      dynamic_axes=dict(x={0: 'seq_length', 1: 'batch_size'}, lengths={0: 'batch_size'},
-                                        output={0: 'batch_size'}))
-    sess_options = rt.SessionOptions()
+                      dynamic_axes=dict(
+                          x={0: 'batch_size', 1: 'seq_length'} if OLD else {0: 'seq_length', 1: 'batch_size'},
+                          lengths={0: 'batch_size'},
+                          output={0: 'batch_size'}))
 
-    # Set graph optimization level
-    sess_options.graph_optimization_level = rt.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+    os.system(f"python -m onnxruntime.transformers.optimizer --input {encoder_path} "
+              f"--output {encoder_opt_path} "
+              f"--model_type bert "
+              f"--num_heads {encoder.encoder.n_heads} "
+              f"--hidden_size {encoder.encoder.dim} "
+              f"--opt_level 2")
 
-    # To enable model serialization after graph optimization set this
-    sess_options.optimized_model_filepath = encoder_opt_path
+    QuantizeHelper.quantize_onnx_model(encoder_opt_path, encoder_quant_path)
 
-    session = rt.InferenceSession(encoder_path, sess_options)
-
-    quantize_dynamic(encoder_opt_path, encoder_quant_path)
-
-    ort_encoder_session = rt.InferenceSession(encoder_opt_path)
+    ort_encoder_session = rt.InferenceSession(encoder_quant_path)
     ort_encoder_inputs = dict(x=to_numpy(x1), lengths=to_numpy(len1))
     ort_encoder_outputs = ort_encoder_session.run(['output'], ort_encoder_inputs)
     print("Encoder output:\n", to_numpy(enc1), "\n", ort_encoder_outputs[0])
@@ -181,22 +187,34 @@ if __name__ == "__main__":
                       opset_version=OPSET_VERSION,
                       input_names=['x', 'lengths', 'src_enc', 'src_len'],
                       output_names=['output'],
-                      dynamic_axes=dict(x={0: 'seq_length', 1: 'batch_size'}, lengths={0: 'batch_size'},
-                                        src_enc={0: 'batch_size', 1: 'enc_seq_length'}, src_len={0: 'batch_size'},
-                                        output={0: 'batch_size'}))
+                      dynamic_axes=dict(
+                          x={0: 'batch_size', 1: 'seq_length'} if OLD else {0: 'seq_length', 1: 'batch_size'},
+                          lengths={0: 'batch_size'},
+                          src_enc={0: 'batch_size', 1: 'enc_seq_length'}, src_len={0: 'batch_size'},
+                          output={0: 'batch_size'}))
     sess_options = rt.SessionOptions()
 
-    # Set graph optimization level
-    sess_options.graph_optimization_level = rt.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+    # Gpt2Helper.optimize_onnx(decoder_path, decoder_opt_path,
+    #                          is_float16=True,
+    #                          num_attention_heads=decoder.decoder.n_heads,
+    #                          hidden_size=decoder.decoder.dim)
 
-    # To enable model serialization after graph optimization set this
-    sess_options.optimized_model_filepath = decoder_opt_path
+    print(f"python -m onnxruntime.transformers.optimizer --input {decoder_path} "
+          f"--output {decoder_opt_path} "
+          f"--model_type gpt2 "
+          f"--num_heads {decoder.decoder.n_heads} "
+          f"--hidden_size {decoder.decoder.dim} "
+          f"--opt_level 2")
+    os.system(f"python -m onnxruntime.transformers.optimizer --input {decoder_path} "
+              f"--output {decoder_opt_path} "
+              f"--model_type gpt2 "
+              f"--num_heads {decoder.decoder.n_heads} "
+              f"--hidden_size {decoder.decoder.dim} "
+              f"--opt_level 2")
 
-    session = rt.InferenceSession(decoder_path, sess_options)
+    QuantizeHelper.quantize_onnx_model(decoder_opt_path, decoder_quant_path)
 
-    quantize_dynamic(decoder_opt_path, decoder_quant_path)
-
-    ort_decoder_session = rt.InferenceSession(decoder_opt_path)
+    ort_decoder_session = rt.InferenceSession(decoder_quant_path)
     ort_decoder_inputs = dict(x=to_numpy(x2),
                               lengths=to_numpy(len2),
                               src_enc=ort_encoder_outputs[0],

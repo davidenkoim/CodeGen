@@ -5,6 +5,9 @@
 # LICENSE file in the root directory of this source tree.
 #
 
+# import pydevd_pycharm
+# pydevd_pycharm.settrace('localhost', port=1234, stdoutToServer=True, stderrToServer=True)
+
 import argparse
 import json
 import os
@@ -21,6 +24,8 @@ from src.utils import bool_flag, initialize_exp, set_sampling_probs, shuf_order
 from src.utils import print_memory
 from iren.distillation.trainer import DistillationTrainer
 from iren.distillation.evaluator import DistillationEvaluator
+from iren.onnx import build_onnx_model
+from iren.onnx.evaluator import ONNXEvaluator
 
 
 def get_parser():
@@ -56,7 +61,7 @@ def get_parser():
 
     # only use an encoder (use a specific decoder for machine translation)
     parser.add_argument(
-        "--encoder_only", type=bool_flag, default=True, help="Only use an encoder"
+        "--encoder_only", type=bool_flag, default=False, help="Only use an encoder"
     )
 
     # model parameters
@@ -736,6 +741,32 @@ def get_parser():
         default=True,
         help="Shuffle dobf masks",
     )
+    
+    # ONNX models evaluation
+    parser.add_argument(
+        "--eval_onnx",
+        type=bool_flag,
+        default=False,
+        help="Evaluate ONNX models",
+    )
+
+    parser.add_argument(
+        "--encoder_path",
+        type=str,
+        default='',
+    )
+
+    parser.add_argument(
+        "--decoder_path",
+        type=str,
+        default='',
+    )
+
+    parser.add_argument(
+        "--limit_test_size",
+        type=int,
+        default=10,
+    )
 
     return parser
 
@@ -756,10 +787,18 @@ def main(params):
 
     # build model
     print_memory(logger, "before build modules")
-    if params.encoder_only:
+    if params.eval_onnx:
+        encoder, decoder = build_onnx_model(params, data["dico"])
+    elif params.encoder_only:
         model = build_model(params, data["dico"])
     else:
         encoder, decoder = build_model(params, data["dico"])
+        # reloaded_params, dico, (_encoder, _decoder) = _reload_model(params.reload_model.split(',')[0], map_location="cpu")
+        # assert dico == data['dico']
+        # sd = _encoder[0].state_dict()
+        # e_non_match = [k for k, v in encoder[0].state_dict().items() if k not in sd or not torch.equal(v, sd[k])]
+        # sd = _decoder[0].state_dict()
+        # d_non_match = [k for k, v in decoder[0].state_dict().items() if k not in sd or not torch.equal(v, sd[k])]
     print_memory(logger, "before build classifier")
 
     if params.use_classifier:
@@ -774,13 +813,16 @@ def main(params):
     elif params.distillation:
         trainer = DistillationTrainer(encoder, decoder, data, params)
         evaluator = DistillationEvaluator(trainer, data, params)
+    elif params.eval_onnx:
+        trainer = None
+        evaluator = ONNXEvaluator(encoder, decoder, data, params)
     else:
         trainer = EncDecTrainer(encoder, decoder, data, params)
         evaluator = EncDecEvaluator(trainer, data, params)
     print_memory(logger, "after building all models")
 
     # evaluation
-    if params.eval_only:
+    if params.eval_only or params.eval_onnx:
         scores = evaluator.run_all_evals(trainer)
         for k, v in scores.items():
             if isinstance(v, list):

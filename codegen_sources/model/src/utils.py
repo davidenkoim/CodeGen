@@ -62,7 +62,6 @@ MAX_VIRTUAL_MEMORY = 2 * 1024 * 1024 * 1024  # 2 GB
 
 
 def show_batch(logger, to_print, dico, roberta_mode, example_type):
-
     """
     log first element of batch.
     x1 and x2 should be of size bs x slen
@@ -104,7 +103,7 @@ def batch_sentences(sentences, pad_index, eos_index):
     sent[0] = eos_index
     for i, s in enumerate(sentences):
         if lengths[i] > 2:  # if sentence not empty
-            sent[1 : lengths[i] - 1, i].copy_(torch.from_numpy(s.astype(np.int64)))
+            sent[1: lengths[i] - 1, i].copy_(torch.from_numpy(s.astype(np.int64)))
         sent[lengths[i] - 1, i] = eos_index
 
     return sent, lengths
@@ -399,7 +398,7 @@ def set_sampling_probs(data, params):
 
 
 def concat_batches(
-    x1, len1, lang1_id, x2, len2, lang2_id, pad_idx, eos_idx, reset_positions
+        x1, len1, lang1_id, x2, len2, lang2_id, pad_idx, eos_idx, reset_positions
 ):
     """
     Concat batches with different languages.
@@ -417,7 +416,7 @@ def concat_batches(
 
     for i in range(bs):
         l1 = len1[i] if reset_positions else len1[i] - 1
-        x[l1 : l1 + len2[i], i].copy_(x2[: len2[i], i])
+        x[l1: l1 + len2[i], i].copy_(x2[: len2[i], i])
         if reset_positions:
             positions[l1:, i] -= len1[i]
         langs[l1:, i] = lang2_id
@@ -487,8 +486,8 @@ def shuf_order(langs, params=None, n=5):
         [
             para[i]
             for i in np.random.choice(
-                len(para), size=min(n, len(para)), p=p_para, replace=True
-            )
+            len(para), size=min(n, len(para)), p=p_para, replace=True
+        )
         ]
         if len(para) > 0
         else []
@@ -499,7 +498,7 @@ def shuf_order(langs, params=None, n=5):
 
 
 def vizualize_translated_files(
-    lang1, lang2, src_file, hyp_file, ids, ref_file=None, out_file=None
+        lang1, lang2, src_file, hyp_file, ids, ref_file=None, out_file=None
 ):
     lang1_processor = LangProcessor.processors[lang1.split("_")[0]](
         root_folder=TREE_SITTER_ROOT
@@ -565,7 +564,7 @@ def vizualize_translated_files(
                     )
 
                     for src, hyps, ref, outs, i in zip(
-                        src_lines, hyp_lines, ref_lines, out_lines, ids
+                            src_lines, hyp_lines, ref_lines, out_lines, ids
                     ):
                         src_vizf.write(
                             "=========================================================\n"
@@ -901,7 +900,7 @@ def span_masking(x, len, params, max_vocab, rng, torch_rng):
         sent[0] = params.eos_index
         for i, s in enumerate(sentences):
             if newlen[i] > 2:  # if sentence not empty
-                sent[0 : newlen[i], i] = s
+                sent[0: newlen[i], i] = s
             sent[newlen[i] - 1, i] = params.eos_index
         return sent, newlen
 
@@ -943,7 +942,7 @@ def mask_spans(x, params, max_vocab, torch_rng):
     assert source_length - 1 not in indices
     assert 0 not in indices
     mask_random = (
-        torch.FloatTensor(num_to_mask).uniform_(generator=torch_rng) < params.word_rand
+            torch.FloatTensor(num_to_mask).uniform_(generator=torch_rng) < params.word_rand
     )
 
     to_keep = torch.ones(source_length, dtype=torch.bool)
@@ -955,9 +954,9 @@ def mask_spans(x, params, max_vocab, torch_rng):
     _x_rand = _x_real.clone().random_(params.n_words)
     _x_mask = _x_real.clone().fill_(params.mask_index)
     _x = (
-        _x_mask * (probs == 0).long()
-        + _x_real * (probs == 1).long()
-        + _x_rand * (probs == 2).long()
+            _x_mask * (probs == 0).long()
+            + _x_real * (probs == 1).long()
+            + _x_rand * (probs == 2).long()
     )
 
     x[indices] = _x
@@ -994,7 +993,7 @@ def insert_tokens(x, n, params, max_vocab, torch_rng):
 
     noise_mask[noise_indices] = 1
     num_random = (
-        torch.FloatTensor(n).uniform_(generator=torch_rng) < params.word_rand
+            torch.FloatTensor(n).uniform_(generator=torch_rng) < params.word_rand
     ).sum()
 
     result = torch.LongTensor(n + num_tokens).fill_(-1)
@@ -1037,7 +1036,7 @@ def convert_to_text(batch, lengths, dico, params, generate_several_reps=False):
     lengths = lengths.cpu().numpy()
 
     assert (
-        len(batch.shape) == 2 or len(batch.shape) == 3
+            len(batch.shape) == 2 or len(batch.shape) == 3
     ), f"generated batch shape was {batch.shape} while it should be in dimension 2 or 3"
     nb_repetitions = 1
     if len(batch.shape) == 2:
@@ -1104,7 +1103,7 @@ def get_java_compilation_errors(code, timeout=20):
     file.unlink()
     classfile = file.with_suffix(".class")
     assert (
-        timed_out or proc.returncode != 0 or classfile.is_file()
+            timed_out or proc.returncode != 0 or classfile.is_file()
     ), "compilation succeeded but .class file does not exist"
     assert "tmp_folder" in str(file.parent), file.parent
     for compiled_f in file.parent.glob("*"):

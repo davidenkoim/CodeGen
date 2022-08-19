@@ -287,7 +287,7 @@ class Evaluator(object):
         Run all evaluations.
         """
         params = self.params
-        scores = OrderedDict({"epoch": trainer.epoch})
+        scores = OrderedDict({"epoch": trainer.epoch if trainer is not None else 0})
         deobf_probas_to_eval = EVAL_OBF_PROBAS
         deobfuscation_proba = 1 - params.obf_proba
         if deobfuscation_proba not in deobf_probas_to_eval:

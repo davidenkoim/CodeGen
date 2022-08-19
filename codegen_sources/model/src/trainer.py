@@ -755,7 +755,7 @@ class Trainer(object):
             for pred in y_
         ]
 
-        # restore x i.e select variable with probability p and restore all occurence of this variable
+        # restore x i.e. select variable with probability p and restore all occurence of this variable
         # keep only unrestored variable in dictionary d_
         x = []
         y = []

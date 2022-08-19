@@ -18,7 +18,7 @@ N_LAYERS_DECODER = [1, 2, 4]
 EMB_DIM = [256, 512, 1024]
 N_HEADS = [4, 8]
 
-MODEL_PATH = r"/home/igor/PycharmProjects/CodeGen/training_artifacts/models/best-valid_obf_proba_0_mt_subtoken_F1.pth"
+MODEL_PATH = r"/training_artifacts/models/best-valid_obf_proba_0_mt_subtoken_F1_no_shuffle.pth"
 TMP_PATH = r"/home/igor/PycharmProjects/CodeGen/training_artifacts/models/tmp.pth"
 
 REPEAT = 3

@@ -26,5 +26,6 @@ def compute_ranking_metrics(refs: List[str], hyps_list: List[Tuple[str]]) -> Dic
     return {
         "mrr": mrr / total,
         "top1": top1 / total,
-        "top5": top5 / total
+        "top5": top5 / total,
+        "total": total
     }
