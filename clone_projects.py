@@ -11,5 +11,13 @@ projects.sort_values(by="stargazers", ascending=False, inplace=True)
 
 projects_number = 1000
 for _, project in tqdm(projects.head(projects_number).iterrows(), total=projects_number):
-    os.system(f"git clone https://github.com/{project['name']}.git "
-              f"../datasets/python-1000/{project['name'].replace('/', '__')}/")
+    project_dir = os.path.join("../datasets/python-1000/", project['name'].replace('/', '__'))
+    os.system(f"git clone https://github.com/{project['name']}.git {project_dir}")
+
+    # traverse root directory and remove files without ".py" extension
+    for root, dirs, files in os.walk(project_dir, topdown=False):
+        for file in files:
+            if not file.endswith(".py"):
+                os.remove(os.path.join(root, file))
+        if not os.listdir(root):
+            os.rmdir(root)
